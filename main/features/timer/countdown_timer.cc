@@ -52,6 +52,7 @@ bool CountdownTimer::Start(int duration_seconds) {
 
     ESP_LOGI(TAG, "Timer started for %d s", duration_seconds);
     ShowRemaining(duration_seconds);
+    ShowStartMessage(duration_seconds);
     return true;
 }
 
@@ -65,6 +66,7 @@ bool CountdownTimer::Stop() {
     }
 
     ESP_LOGI(TAG, "Timer stopped");
+    HideStartMessage();
     // Hand the status line back to the clock. UpdateStatusBar() picks it up on the
     // next clock tick because it was told to refresh as soon as the timer ends.
     auto& app = Application::GetInstance();
@@ -98,6 +100,10 @@ std::string CountdownTimer::FormatRemaining() const {
 }
 
 void CountdownTimer::Tick() {
+    // Advanced before the running check: the confirmation has to go away even
+    // when the countdown already ended.
+    TickStartMessage();
+
     int remaining_seconds = 0;
     bool expired = false;
 
@@ -114,6 +120,12 @@ void CountdownTimer::Tick() {
             remaining_seconds = RemainingSecondsFrom(remaining_us);
         }
     }
+
+    // A running countdown is meant to stay readable, so keep the screen awake for
+    // its whole duration: the board's idle screen timeout would otherwise blank it
+    // after a few seconds of no interaction. Boards without a screen timeout only
+    // restore the backlight, which is a no-op while it is already on.
+    Board::GetInstance().WakeUp();
 
     if (expired) {
         ESP_LOGI(TAG, "Timer expired");
@@ -142,6 +154,56 @@ void CountdownTimer::ShowRemaining(int remaining_seconds) {
     }
     auto text = FormatSeconds(remaining_seconds);
     display->SetStatus(text.c_str());
+}
+
+void CountdownTimer::ShowStartMessage(int duration_seconds) {
+    auto display = Board::GetInstance().GetDisplay();
+    if (display == nullptr) {
+        return;
+    }
+
+    // A previous confirmation may still be visible when a new timer is started.
+    HideStartMessage();
+
+    std::string message = "Таймер на " + FormatSeconds(duration_seconds);
+    display->SetChatMessage("assistant", message.c_str());
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    start_message_ = std::move(message);
+    start_message_ticks_ = kStartMessageTicks;
+}
+
+void CountdownTimer::TickStartMessage() {
+    bool hide = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (start_message_.empty()) {
+            return;
+        }
+        hide = (--start_message_ticks_ <= 0);
+    }
+    if (hide) {
+        HideStartMessage();
+    }
+}
+
+void CountdownTimer::HideStartMessage() {
+    std::string message;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        start_message_ticks_ = 0;
+        message = std::move(start_message_);
+        start_message_.clear();
+    }
+    if (message.empty()) {
+        return;
+    }
+
+    // Clears the line only while it still shows this confirmation, so a
+    // conversation, notification or radio station name that replaced it is kept.
+    if (auto display = Board::GetInstance().GetDisplay()) {
+        display->RemoveChatMessage("assistant", message.c_str());
+    }
 }
 
 void CountdownTimer::ShowAlarm() {

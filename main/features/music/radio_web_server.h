@@ -19,6 +19,9 @@ class Esp32Radio;
 //        POST   /api/play?key=KEY - start playing a station by key
 //                                 (also wakes the display from sleep)
 //        POST   /api/stop     - stop playback
+//        GET    /api/timer    - {running, remainingSeconds, remaining}
+//        POST   /api/timer?seconds=N - start (or replace) the countdown timer
+//        POST   /api/timer/stop - cancel the running countdown timer
 class RadioWebServer {
 public:
     RadioWebServer();
@@ -39,6 +42,9 @@ private:
     static esp_err_t StatusHandler(httpd_req_t* req);
     static esp_err_t PlayHandler(httpd_req_t* req);
     static esp_err_t StopHandler(httpd_req_t* req);
+    static esp_err_t TimerHandler(httpd_req_t* req);
+    static esp_err_t TimerSetHandler(httpd_req_t* req);
+    static esp_err_t TimerStopHandler(httpd_req_t* req);
 
     esp_err_t HandlePage(httpd_req_t* req);
     esp_err_t HandleStations(httpd_req_t* req);
@@ -46,6 +52,9 @@ private:
     esp_err_t HandleStatus(httpd_req_t* req);
     esp_err_t HandlePlay(httpd_req_t* req);
     esp_err_t HandleStop(httpd_req_t* req);
+    esp_err_t HandleTimer(httpd_req_t* req);
+    esp_err_t HandleTimerSet(httpd_req_t* req);
+    esp_err_t HandleTimerStop(httpd_req_t* req);
 
     std::string StationsJson() const;
     esp_err_t SendJson(httpd_req_t* req, int status, const std::string& body);

@@ -1,12 +1,16 @@
 #include "radio_web_server.h"
 
+#include "application.h"
 #include "board.h"
 #include "cjson_utils.h"
 #include "esp32_radio.h"
+#include "features/timer/countdown_timer.h"
 
 #include <esp_log.h>
 
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #define TAG "RadioWeb"
@@ -22,7 +26,7 @@ constexpr size_t kMaxBodySize = 16384;
 const char kPageHtml[] = "<!-- radio web ui build " __DATE__ " " __TIME__ " -->\n" R"HTML(<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>XiaoZhi — Радиостанции</title>
+<title>XiaoZhi — устройство</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
 body{background:#f1f4f8}
@@ -32,23 +36,33 @@ body{background:#f1f4f8}
 .card-header{background:#fff;border-bottom:1px solid #e5e7eb;font-weight:600}
 .url{font-size:.82rem;word-break:break-all}
 .actions{white-space:nowrap;text-align:right}
+.nav-tabs .nav-link{color:#1f3a5f;font-weight:600}
+.nav-tabs .nav-link.active{color:#111827}
+.timer-value{font-variant-numeric:tabular-nums;font-size:3.5rem;font-weight:700;line-height:1;letter-spacing:.03em}
+.timer-idle{color:#94a3b8}
 </style></head>
 <body>
 <header class="app-header text-white shadow-sm">
  <div class="container py-3 d-flex align-items-center gap-3">
-  <span class="fs-3">📻</span>
+  <span class="fs-3">🎛</span>
   <div>
-   <h1 class="h4 mb-0">Радиостанции</h1>
-   <div class="small text-white-50">Управление списком станций XiaoZhi</div>
+   <h1 class="h4 mb-0">XiaoZhi</h1>
+   <div class="small text-white-50">Веб-интерфейс устройства</div>
   </div>
   <div class="ms-auto d-flex align-items-center gap-2">
    <span id="nowPlaying" class="badge text-bg-success d-none">▶</span>
-   <span id="countBadge" class="badge rounded-pill">0 станций</span>
   </div>
  </div>
 </header>
 <main class="container py-4">
 <div id="msg" class="alert d-none" role="alert"></div>
+
+<ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
+ <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-tab="radio">📻 Радио</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
+</ul>
+<div class="tab-content">
+<div class="tab-pane active" id="pane-radio" role="tabpanel">
 
 <section class="card mb-4">
  <div class="card-header" id="formTitle">➕ Добавить станцию</div>
@@ -111,7 +125,47 @@ body{background:#f1f4f8}
   </table>
  </div>
 </section>
-<footer class="text-center text-muted small py-4">XiaoZhi Radio · локальный веб-интерфейс устройства</footer>
+</div>
+
+<div class="tab-pane" id="pane-timer" role="tabpanel">
+<section class="card mb-4">
+ <div class="card-header">⏱ Таймер обратного отсчёта</div>
+ <div class="card-body">
+  <div class="text-center mb-3">
+   <div class="timer-value timer-idle" id="timerValue">--:--</div>
+   <div class="small text-muted mt-2" id="timerState">Таймер не запущен</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2 justify-content-center mb-4" id="timerPresets">
+   <button class="btn btn-outline-primary btn-sm" type="button" data-seconds="60">1 мин</button>
+   <button class="btn btn-outline-primary btn-sm" type="button" data-seconds="300">5 мин</button>
+   <button class="btn btn-outline-primary btn-sm" type="button" data-seconds="600">10 мин</button>
+   <button class="btn btn-outline-primary btn-sm" type="button" data-seconds="900">15 мин</button>
+   <button class="btn btn-outline-primary btn-sm" type="button" data-seconds="1800">30 мин</button>
+   <button class="btn btn-outline-primary btn-sm" type="button" data-seconds="3600">1 час</button>
+  </div>
+  <form id="timerForm" class="row g-2 align-items-end justify-content-center">
+   <div class="col-auto">
+    <label class="form-label small" for="timerMin">Минуты</label>
+    <input id="timerMin" class="form-control" type="number" min="0" max="1440" step="1" value="5" style="width:7rem">
+   </div>
+   <div class="col-auto">
+    <label class="form-label small" for="timerSec">Секунды</label>
+    <input id="timerSec" class="form-control" type="number" min="0" max="59" step="1" value="0" style="width:6rem">
+   </div>
+   <div class="col-auto">
+    <button class="btn btn-primary" type="submit">▶ Запустить</button>
+   </div>
+   <div class="col-auto">
+    <button class="btn btn-outline-danger" type="button" id="timerStop" disabled>⏹ Остановить</button>
+   </div>
+  </form>
+  <div class="text-muted small text-center mt-4">Таймер идёт независимо от радио и разговора с ассистентом; по окончании звучит сигнал.</div>
+ </div>
+</section>
+</div>
+</div>
+
+<footer class="text-center text-muted small py-4">XiaoZhi · локальный веб-интерфейс устройства</footer>
 </main>
 <script>
 let editingKey=null;
@@ -126,7 +180,6 @@ function msg(t,ok){
 function isCurrent(s){return playback.playing&&playback.currentKey===s.key}
 function renderRows(){
   const stations=stationsCache;
-  document.getElementById('countBadge').textContent=stations.length+' станций';
   const tb=document.getElementById('rows');tb.innerHTML='';
   if(stations.length===0){
     tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">Станций пока нет. Добавьте первую через форму выше.</td></tr>';
@@ -249,9 +302,57 @@ document.getElementById('importFile').onchange=async e=>{
   else{msg('Импорт не удался: '+(res.error||r.status),false);}
   e.target.value='';
 };
+function showTab(name){
+  document.querySelectorAll('#mainTabs .nav-link').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+  document.querySelectorAll('.tab-content > .tab-pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
+  if(name==='timer')loadTimer();
+}
+document.querySelectorAll('#mainTabs .nav-link').forEach(b=>{b.onclick=()=>showTab(b.dataset.tab)});
+function paintTimer(t){
+  const running=!!t.running;
+  const value=document.getElementById('timerValue');
+  value.textContent=running?(t.remaining||'--:--'):'--:--';
+  value.classList.toggle('timer-idle',!running);
+  document.getElementById('timerState').textContent=running
+    ?'Таймер идёт — осталось '+t.remainingSeconds+' с'
+    :'Таймер не запущен';
+  document.getElementById('timerStop').disabled=!running;
+}
+async function loadTimer(){
+  try{
+    const r=await fetch('/api/timer');
+    if(!r.ok)return;
+    paintTimer(await r.json());
+  }catch(e){/* device unreachable; keep last state */}
+}
+async function setTimer(seconds){
+  const r=await fetch('/api/timer?seconds='+seconds,{method:'POST'});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'⏱ Таймер запущен на '+res.remaining:'Не удалось запустить таймер: '+(res.error||r.status),r.ok);
+  await loadTimer();
+}
+async function stopTimer(){
+  const btn=document.getElementById('timerStop');
+  btn.disabled=true;
+  const r=await fetch('/api/timer/stop',{method:'POST'});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'⏹ Таймер остановлен':'Не удалось остановить таймер: '+(res.error||r.status),r.ok);
+  await loadTimer();
+}
+document.querySelectorAll('#timerPresets button').forEach(b=>{b.onclick=()=>setTimer(parseInt(b.dataset.seconds,10))});
+document.getElementById('timerStop').onclick=stopTimer;
+document.getElementById('timerForm').onsubmit=e=>{
+  e.preventDefault();
+  const minutes=parseInt(document.getElementById('timerMin').value,10)||0;
+  const seconds=parseInt(document.getElementById('timerSec').value,10)||0;
+  const total=minutes*60+seconds;
+  if(total<1||total>86400){msg('Укажите длительность от 1 секунды до 24 часов',false);return;}
+  setTimer(total);
+};
 load();
 loadStatus();
 setInterval(loadStatus,3000);
+setInterval(()=>{if(document.getElementById('pane-timer').classList.contains('active'))loadTimer();},1000);
 </script></body></html>)HTML";
 
 std::vector<std::string> SplitAliases(const std::string& value) {
@@ -351,7 +452,7 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     config.server_port = port;
     config.max_open_sockets = 7;
     config.ctrl_port = 32770;
-    // We register 9 handlers; the default limit (8) is not enough.
+    // We register 12 handlers; the default limit (8) is not enough.
     config.max_uri_handlers = 16;
 
     httpd_uri_t page_uri = {
@@ -397,6 +498,24 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
         .handler = StopHandler,
         .user_ctx = nullptr,
     };
+    httpd_uri_t timer_uri = {
+        .uri = "/api/timer",
+        .method = HTTP_GET,
+        .handler = TimerHandler,
+        .user_ctx = nullptr,
+    };
+    httpd_uri_t timer_set_uri = {
+        .uri = "/api/timer",
+        .method = HTTP_POST,
+        .handler = TimerSetHandler,
+        .user_ctx = nullptr,
+    };
+    httpd_uri_t timer_stop_uri = {
+        .uri = "/api/timer/stop",
+        .method = HTTP_POST,
+        .handler = TimerStopHandler,
+        .user_ctx = nullptr,
+    };
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
@@ -417,6 +536,9 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     register_uri(&status_uri);
     register_uri(&play_uri);
     register_uri(&stop_uri);
+    register_uri(&timer_uri);
+    register_uri(&timer_set_uri);
+    register_uri(&timer_stop_uri);
     ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);
     return true;
@@ -470,6 +592,27 @@ esp_err_t RadioWebServer::StopHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     return instance_->HandleStop(req);
+}
+
+esp_err_t RadioWebServer::TimerHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleTimer(req);
+}
+
+esp_err_t RadioWebServer::TimerSetHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleTimerSet(req);
+}
+
+esp_err_t RadioWebServer::TimerStopHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleTimerStop(req);
 }
 
 esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
@@ -674,6 +817,81 @@ esp_err_t RadioWebServer::HandleStop(httpd_req_t* req) {
     ESP_LOGI(TAG, "Stop playback request");
     if (!radio_->Stop()) {
         return SendJson(req, 500, ErrorJson("Failed to stop playback"));
+    }
+    return SendJson(req, 200, "{\"ok\":true}");
+}
+
+esp_err_t RadioWebServer::HandleTimer(httpd_req_t* req) {
+    auto* timer = Application::GetInstance().GetTimer();
+    bool running = timer != nullptr && timer->IsRunning();
+    int remaining_seconds = running ? timer->GetRemainingSeconds() : 0;
+    // The countdown can reach zero between IsRunning() and the remaining query.
+    if (remaining_seconds <= 0) {
+        running = false;
+    }
+
+    CJsonUniquePtr root(cJSON_CreateObject());
+    if (root == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    std::string remaining = running ? timer->FormatRemaining() : std::string();
+    cJSON_AddBoolToObject(root.get(), "running", running);
+    cJSON_AddNumberToObject(root.get(), "remainingSeconds", remaining_seconds);
+    cJSON_AddStringToObject(root.get(), "remaining", remaining.c_str());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t RadioWebServer::HandleTimerSet(httpd_req_t* req) {
+    // httpd_query_key_value wants the query string itself, not the full URI.
+    char seconds_text[16] = {0};
+    const char* query = strchr(req->uri, '?');
+    const char* query_str = (query != nullptr) ? query + 1 : "";
+    if (httpd_query_key_value(query_str, "seconds", seconds_text, sizeof(seconds_text)) != ESP_OK ||
+        seconds_text[0] == '\0') {
+        return SendJson(req, 400, ErrorJson("Missing seconds query parameter"));
+    }
+
+    char* end = nullptr;
+    long seconds = strtol(seconds_text, &end, 10);
+    if (end == nullptr || *end != '\0' || seconds <= 0 ||
+        seconds > static_cast<long>(CountdownTimer::kMaxDurationSeconds)) {
+        return SendJson(req, 400, ErrorJson("Seconds must be between 1 and 86400"));
+    }
+
+    auto* timer = Application::GetInstance().GetTimer();
+    if (timer == nullptr) {
+        return SendJson(req, 500, ErrorJson("Timer unavailable"));
+    }
+    ESP_LOGI(TAG, "Start timer request: %ld s", seconds);
+    if (!timer->Start(static_cast<int>(seconds))) {
+        return SendJson(req, 400, ErrorJson("Failed to start timer"));
+    }
+
+    CJsonUniquePtr root(cJSON_CreateObject());
+    if (root == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    std::string remaining = timer->FormatRemaining();
+    cJSON_AddBoolToObject(root.get(), "ok", true);
+    cJSON_AddNumberToObject(root.get(), "seconds", static_cast<double>(seconds));
+    cJSON_AddStringToObject(root.get(), "remaining", remaining.c_str());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    // Setting a timer from the Web UI counts as user activity: wake the display
+    // so the countdown in the status line becomes visible. CountdownTimer shows
+    // its own short confirmation on the subtitle line and clears it by itself.
+    Board::GetInstance().WakeUp();
+    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t RadioWebServer::HandleTimerStop(httpd_req_t* req) {
+    auto* timer = Application::GetInstance().GetTimer();
+    if (timer == nullptr) {
+        return SendJson(req, 500, ErrorJson("Timer unavailable"));
+    }
+    ESP_LOGI(TAG, "Stop timer request");
+    if (!timer->Stop()) {
+        return SendJson(req, 409, ErrorJson("No active timer"));
     }
     return SendJson(req, 200, "{\"ok\":true}");
 }

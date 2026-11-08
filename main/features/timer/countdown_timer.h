@@ -40,9 +40,20 @@ private:
     void ShowRemaining(int remaining_seconds);
     void ShowAlarm();
 
+    // Short "timer set" confirmation on the subtitle line. It lives in the same
+    // line as the chat text, so it is removed after kStartMessageTicks ticks
+    // instead of occupying the line for the whole countdown.
+    void ShowStartMessage(int duration_seconds);
+    void TickStartMessage();
+    void HideStartMessage();
+
+    static constexpr int kStartMessageTicks = 10;
+
     mutable std::mutex mutex_;
     bool running_ = false;
     int64_t end_time_us_ = 0;
+    std::string start_message_;
+    int start_message_ticks_ = 0;
 };
 
 #endif  // COUNTDOWN_TIMER_H
