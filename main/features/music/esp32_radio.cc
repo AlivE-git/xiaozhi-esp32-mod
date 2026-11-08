@@ -692,6 +692,52 @@ bool Esp32Radio::DeleteStation(const std::string& key) {
     return true;
 }
 
+bool Esp32Radio::ReplaceStations(const std::map<std::string, RadioStation>& stations) {
+    if (stations.empty()) {
+        ESP_LOGE(TAG, "Rejected empty station list for import");
+        return false;
+    }
+    std::map<std::string, RadioStation> validated;
+    for (const auto& [key, station] : stations) {
+        RadioStation normalized = NormalizeStation(station);
+        if (!IsValidStationKey(key) || !IsValidStation(normalized)) {
+            ESP_LOGE(TAG, "Rejected invalid station in import: key=%s name=%s", key.c_str(),
+                     normalized.name.c_str());
+            return false;
+        }
+        validated[key] = normalized;
+    }
+
+    std::map<std::string, RadioStation> previous;
+    bool was_playing_removed_station = false;
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        previous = radio_stations_;
+        if (IsPlaying() && !current_station_name_.empty()) {
+            was_playing_removed_station = true;
+            for (const auto& [key, station] : validated) {
+                if (station.name == current_station_name_) {
+                    was_playing_removed_station = false;
+                    break;
+                }
+            }
+        }
+        radio_stations_ = validated;
+    }
+    if (!SaveStations()) {
+        // Keep RAM in sync with NVS: restore the previous list.
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        radio_stations_ = previous;
+        return false;
+    }
+    if (was_playing_removed_station) {
+        Stop();
+    }
+    ESP_LOGI(TAG, "Replaced radio stations with imported list of %d stations",
+             static_cast<int>(validated.size()));
+    return true;
+}
+
 void Esp32Radio::DownloadRadioStream(const std::string& radio_url) {
     ESP_LOGD(TAG, "Starting radio stream download from: %s", radio_url.c_str());
 

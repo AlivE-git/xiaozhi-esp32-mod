@@ -121,6 +121,11 @@ public:
     bool UpdateStation(const std::string& key, const RadioStation& station);
     bool DeleteStation(const std::string& key);
 
+    // Replaces the whole station list (used by the Web UI import). Every
+    // station is validated first; on any invalid entry or failed NVS save
+    // the current list is left untouched and false is returned.
+    bool ReplaceStations(const std::map<std::string, RadioStation>& stations);
+
     // Get current playback status
     virtual bool IsPlaying() const override { return is_playing_; }
     virtual std::string GetCurrentStation() const override { return current_station_name_; }

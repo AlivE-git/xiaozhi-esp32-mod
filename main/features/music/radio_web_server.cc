@@ -12,7 +12,8 @@
 
 namespace {
 
-constexpr size_t kMaxBodySize = 4096;
+// Large enough for one station and for a full imported station list.
+constexpr size_t kMaxBodySize = 16384;
 
 // Compact station management page. The form fields map 1:1 to the JSON API:
 // key, name, url, description, genre, volume and aliases ("Keywords used as
@@ -41,6 +42,12 @@ button{margin:4px 4px 4px 0;padding:6px 12px}#msg{margin:10px 0;color:#060}</sty
 <button type="submit">Save station</button>
 <button type="button" id="cancelBtn" style="display:none">Cancel edit</button>
 </form>
+<h2>Import / Export</h2>
+<div>
+<button type="button" id="exportBtn">Export stations (JSON)</button>
+<button type="button" id="importBtn">Import &amp; replace all stations</button>
+<input type="file" id="importFile" accept=".json,application/json" style="display:none">
+</div>
 <table><thead><tr><th>Key</th><th>Name</th><th>URL</th><th>Aliases</th><th></th></tr></thead>
 <tbody id="rows"></tbody></table>
 <script>
@@ -95,6 +102,35 @@ document.getElementById('stationForm').onsubmit=async e=>{
   const res=await r.json().catch(()=>({}));
   msg(r.ok?'Saved':('Error: '+(res.error||r.status)));
   if(r.ok){resetForm();load();}
+};
+document.getElementById('exportBtn').onclick=async()=>{
+  const r=await fetch('/api/stations');
+  if(!r.ok){msg('Export failed');return;}
+  const text=await r.text();
+  const blob=new Blob([text],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='radio-stations.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  msg('Exported');
+};
+document.getElementById('importBtn').onclick=()=>{
+  document.getElementById('importFile').click();
+};
+document.getElementById('importFile').onchange=async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  let data;
+  try{data=JSON.parse(await file.text());}
+  catch(err){msg('Import failed: invalid JSON file');e.target.value='';return;}
+  if(!data||!Array.isArray(data.stations)||data.stations.length===0){
+    msg('Import failed: expected a non-empty "stations" array');e.target.value='';return;}
+  if(!confirm('Replace all current stations with the imported list of '+data.stations.length+' stations?')){
+    e.target.value='';return;}
+  const r=await fetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  const res=await r.json().catch(()=>({}));
+  if(r.ok){msg('Imported '+(res.imported||data.stations.length)+' stations');load();}
+  else{msg('Import failed: '+(res.error||r.status));}
+  e.target.value='';
 };
 load();
 </script></body></html>)HTML";
@@ -216,6 +252,12 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     stations_put_uri.method = HTTP_PUT;
     httpd_uri_t stations_delete_uri = stations_uri;
     stations_delete_uri.method = HTTP_DELETE;
+    httpd_uri_t import_uri = {
+        .uri = "/api/import",
+        .method = HTTP_POST,
+        .handler = ImportHandler,
+        .user_ctx = nullptr,
+    };
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
@@ -227,6 +269,7 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     httpd_register_uri_handler(server_handle_, &stations_post_uri);
     httpd_register_uri_handler(server_handle_, &stations_put_uri);
     httpd_register_uri_handler(server_handle_, &stations_delete_uri);
+    httpd_register_uri_handler(server_handle_, &import_uri);
     ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/)", port, port);
     return true;
 }
@@ -253,6 +296,13 @@ esp_err_t RadioWebServer::StationsHandler(httpd_req_t* req) {
     return instance_->HandleStations(req);
 }
 
+esp_err_t RadioWebServer::ImportHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->radio_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleImport(req);
+}
+
 esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     return httpd_resp_send(req, kPageHtml, HTTPD_RESP_USE_STRLEN);
@@ -264,7 +314,9 @@ esp_err_t RadioWebServer::SendJson(httpd_req_t* req, int status, const std::stri
                                          : status == 201 ? "201 Created"
                                          : status == 400 ? "400 Bad Request"
                                          : status == 404 ? "404 Not Found"
-                                         : "409 Conflict");
+                                         : status == 409 ? "409 Conflict"
+                                         : status == 500 ? "500 Internal Server Error"
+                                                         : "500 Internal Server Error");
     return httpd_resp_send(req, body.c_str(), body.size());
 }
 
@@ -368,4 +420,52 @@ esp_err_t RadioWebServer::HandleStations(httpd_req_t* req) {
     }
 
     return SendJson(req, 400, ErrorJson("Unsupported method"));
+}
+
+esp_err_t RadioWebServer::HandleImport(httpd_req_t* req) {
+    if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
+        return SendJson(req, 400, ErrorJson("Invalid request body size"));
+    }
+    std::string body(req->content_len, '\0');
+    size_t received = 0;
+    while (received < body.size()) {
+        int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
+        if (ret <= 0) {
+            return SendJson(req, 400, ErrorJson("Failed to read request body"));
+        }
+        received += static_cast<size_t>(ret);
+    }
+
+    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
+    cJSON* stations = root != nullptr ? cJSON_GetObjectItem(root.get(), "stations") : nullptr;
+    if (!cJSON_IsArray(stations) || cJSON_GetArraySize(stations) == 0) {
+        return SendJson(req, 400, ErrorJson("Expected a non-empty \"stations\" array"));
+    }
+
+    std::map<std::string, RadioStation> imported;
+    cJSON* item = nullptr;
+    cJSON_ArrayForEach(item, stations) {
+        std::string key;
+        RadioStation station;
+        if (!StationFromJson(item, &key, &station)) {
+            return SendJson(req, 400, ErrorJson("Invalid station entry: key, name and url are required"));
+        }
+        if (!imported.emplace(key, station).second) {
+            return SendJson(req, 400, ErrorJson("Duplicate station key in import: " + key));
+        }
+    }
+
+    ESP_LOGI(TAG, "Import station request: %d stations", static_cast<int>(imported.size()));
+    if (!radio_->ReplaceStations(imported)) {
+        ESP_LOGE(TAG, "Import station request: failed to persist station list to NVS");
+        return SendJson(req, 500, ErrorJson("Failed to save imported station list"));
+    }
+    CJsonUniquePtr result(cJSON_CreateObject());
+    if (result == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    cJSON_AddBoolToObject(result.get(), "ok", true);
+    cJSON_AddNumberToObject(result.get(), "imported", static_cast<double>(imported.size()));
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
+    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
 }
