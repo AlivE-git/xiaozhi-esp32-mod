@@ -2,8 +2,10 @@
 #include "application.h"
 #include "audio/audio_codec.h"
 #include "board.h"
+#include "cjson_utils.h"
 #include "device_state.h"
 #include "display/display.h"
+#include "settings.h"
 
 #include "esp_ae_rate_cvt.h"
 #include "esp_audio_types.h"
@@ -15,6 +17,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -88,9 +91,19 @@ void Esp32Radio::Initialize() {
 }
 
 void Esp32Radio::InitializeRadioStations() {
+    if (!LoadStations()) {
+        ESP_LOGW(TAG, "No saved stations found, seeding default stations");
+        SeedDefaultStations();
+        SaveStations();
+    }
+    ESP_LOGI(TAG, "Initialized %d radio stations", radio_stations_.size());
+}
+
+void Esp32Radio::SeedDefaultStations() {
     // Russian radio stations. Streams are MP3 unless noted, supported by the
     // ESP Audio simple decoder. Volume values: 1.0 = 100%, 2.0 = 200%, etc.
-    // The list is user-editable; custom streams can be started with PlayUrl().
+    // These defaults are saved to NVS on first boot and can afterwards be
+    // edited from the Web UI; custom streams can also be started with PlayUrl().
 
     // === Новости / разговорные ===
     radio_stations_["MAYAK"] =
@@ -146,94 +159,324 @@ void Esp32Radio::InitializeRadioStations() {
         RadioStation("Модель Для Сборки", "http://mds-station.com:8000/mds",
                      "Литературный аудиопроект МДС, станция I", "Talk/Literature", 1.0f);
 
-    ESP_LOGI(TAG, "Initialized %d radio stations", radio_stations_.size());
+    // Default keywords used as extra aliases for voice search. Editable from
+    // the Web UI together with the stations.
+    const std::map<std::string, std::vector<std::string>> default_aliases = {
+        {"MAYAK", {"маяк", "mayak"}},
+        {"VESTI", {"вести", "vesti"}},
+        {"RADIO_ROSSII", {"россии"}},
+        {"KP", {"комсомольск", "kp"}},
+        {"EUROPA_PLUS", {"европа", "europa"}},
+        {"RETRO_FM", {"ретро", "retro"}},
+        {"ENERGY", {"энерджи", "energy", "энергия"}},
+        {"AVTORADIO", {"авто", "avtoradio"}},
+        {"LOVE_RADIO", {"love", "лав", "любов"}},
+        {"HUMOR_FM", {"юмор", "humor"}},
+        {"SHANSON", {"шансон", "shanson"}},
+        {"DACHA", {"дача", "dacha"}},
+        {"DETSKOE", {"детск", "detskoe"}},
+        {"DOROZHNOE", {"дорожн", "doroghnoe", "дорога"}},
+        {"ULTRA", {"ультра", "ultra"}},
+        {"MDS", {"мдс", "mds", "модель"}},
+    };
+    for (const auto& [key, aliases] : default_aliases) {
+        auto it = radio_stations_.find(key);
+        if (it != radio_stations_.end()) {
+            it->second.aliases = aliases;
+        }
+    }
+}
+
+namespace {
+
+std::string ToLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+std::string TrimAscii(const std::string& value) {
+    size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin]))) {
+        ++begin;
+    }
+    size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+        --end;
+    }
+    return value.substr(begin, end - begin);
+}
+
+bool IsValidStationKey(const std::string& key) {
+    if (key.empty() || key.size() > 32) {
+        return false;
+    }
+    for (char c : key) {
+        unsigned char u = static_cast<unsigned char>(c);
+        if (!std::isalnum(u) && c != '_' && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsValidStation(const RadioStation& station) {
+    if (station.name.empty() || station.name.size() > 64) {
+        return false;
+    }
+    if (station.url.rfind("http://", 0) != 0 && station.url.rfind("https://", 0) != 0) {
+        return false;
+    }
+    if (station.url.size() > 256 || station.description.size() > 128 || station.genre.size() > 32) {
+        return false;
+    }
+    return true;
+}
+
+RadioStation NormalizeStation(RadioStation station) {
+    station.name = TrimAscii(station.name);
+    station.url = TrimAscii(station.url);
+    station.description = TrimAscii(station.description);
+    station.genre = TrimAscii(station.genre);
+    if (station.volume < 0.1f) {
+        station.volume = 0.1f;
+    }
+    if (station.volume > 4.0f) {
+        station.volume = 4.0f;
+    }
+    std::vector<std::string> aliases;
+    for (const auto& alias : station.aliases) {
+        std::string normalized = ToLowerAscii(TrimAscii(alias));
+        if (!normalized.empty() &&
+            std::find(aliases.begin(), aliases.end(), normalized) == aliases.end()) {
+            aliases.push_back(normalized);
+        }
+    }
+    station.aliases = aliases;
+    return station;
+}
+
+}  // namespace
+
+// The station list JSON is stored in NVS in small chunks ("c0", "c1", ...
+// plus a "n" chunk count). The NVS partition on small boards is only a few
+// pages, and one multi-KB nvs_set_str needs several free pages at once and
+// quickly exhausts it (ESP_ERR_NVS_NOT_ENOUGH_SPACE). Small chunks let GC
+// reclaim pages one at a time. The legacy single "stations" key is still
+// read for backward compatibility and erased after the first chunked save.
+namespace {
+constexpr size_t kNvsChunkSize = 1024;
+}  // namespace
+
+bool Esp32Radio::LoadStations() {
+    Settings settings("radio");
+    std::string saved;
+    int32_t chunk_count = settings.GetInt("n", 0);
+    if (chunk_count > 0) {
+        for (int32_t i = 0; i < chunk_count; ++i) {
+            saved += settings.GetString("c" + std::to_string(i));
+        }
+    } else {
+        saved = settings.GetString("stations");
+    }
+    if (saved.empty()) {
+        return false;
+    }
+
+    CJsonUniquePtr root(cJSON_Parse(saved.c_str()));
+    if (root == nullptr) {
+        ESP_LOGE(TAG, "Saved station list is not valid JSON, ignoring it");
+        return false;
+    }
+    cJSON* stations = cJSON_GetObjectItem(root.get(), "stations");
+    if (!cJSON_IsArray(stations)) {
+        ESP_LOGE(TAG, "Saved station list has no stations array, ignoring it");
+        return false;
+    }
+
+    std::map<std::string, RadioStation> loaded;
+    cJSON* item = nullptr;
+    cJSON_ArrayForEach(item, stations) {
+        if (!cJSON_IsObject(item)) {
+            continue;
+        }
+        cJSON* key = cJSON_GetObjectItem(item, "key");
+        cJSON* name = cJSON_GetObjectItem(item, "name");
+        cJSON* url = cJSON_GetObjectItem(item, "url");
+        if (!cJSON_IsString(key) || !cJSON_IsString(name) || !cJSON_IsString(url)) {
+            continue;
+        }
+        RadioStation station;
+        station.name = name->valuestring;
+        station.url = url->valuestring;
+        if (cJSON* description = cJSON_GetObjectItem(item, "description"); cJSON_IsString(description)) {
+            station.description = description->valuestring;
+        }
+        if (cJSON* genre = cJSON_GetObjectItem(item, "genre"); cJSON_IsString(genre)) {
+            station.genre = genre->valuestring;
+        }
+        if (cJSON* volume = cJSON_GetObjectItem(item, "volume"); cJSON_IsNumber(volume)) {
+            station.volume = static_cast<float>(volume->valuedouble);
+        }
+        if (cJSON* aliases = cJSON_GetObjectItem(item, "aliases"); cJSON_IsArray(aliases)) {
+            cJSON* alias = nullptr;
+            cJSON_ArrayForEach(alias, aliases) {
+                if (cJSON_IsString(alias)) {
+                    station.aliases.emplace_back(alias->valuestring);
+                }
+            }
+        }
+        station = NormalizeStation(station);
+        if (IsValidStationKey(key->valuestring) && IsValidStation(station)) {
+            loaded[key->valuestring] = station;
+        }
+    }
+
+    if (loaded.empty()) {
+        ESP_LOGE(TAG, "Saved station list contains no valid stations, ignoring it");
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        radio_stations_ = std::move(loaded);
+    }
+    ESP_LOGI(TAG, "Loaded %d radio stations from NVS", radio_stations_.size());
+    return true;
+}
+
+bool Esp32Radio::SaveStations() {
+    std::map<std::string, RadioStation> stations;
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        stations = radio_stations_;
+    }
+
+    CJsonUniquePtr root(cJSON_CreateObject());
+    CJsonUniquePtr array(cJSON_CreateArray());
+    if (root == nullptr || array == nullptr) {
+        return false;
+    }
+    for (const auto& [key, station] : stations) {
+        CJsonUniquePtr item(cJSON_CreateObject());
+        CJsonUniquePtr aliases(cJSON_CreateArray());
+        if (item == nullptr || aliases == nullptr) {
+            return false;
+        }
+        cJSON_AddStringToObject(item.get(), "key", key.c_str());
+        cJSON_AddStringToObject(item.get(), "name", station.name.c_str());
+        cJSON_AddStringToObject(item.get(), "url", station.url.c_str());
+        cJSON_AddStringToObject(item.get(), "description", station.description.c_str());
+        cJSON_AddStringToObject(item.get(), "genre", station.genre.c_str());
+        cJSON_AddNumberToObject(item.get(), "volume", station.volume);
+        for (const auto& alias : station.aliases) {
+            cJSON_AddItemToArray(aliases.get(), cJSON_CreateString(alias.c_str()));
+        }
+        cJSON_AddItemToObject(item.get(), "aliases", aliases.release());
+        cJSON_AddItemToArray(array.get(), item.release());
+    }
+    cJSON_AddItemToObject(root.get(), "stations", array.release());
+
+    CJsonStringUniquePtr json_str(cJSON_PrintUnformatted(root.get()));
+    if (json_str == nullptr) {
+        return false;
+    }
+    const std::string json = json_str.get();
+    const int32_t chunk_count =
+        static_cast<int32_t>((json.size() + kNvsChunkSize - 1) / kNvsChunkSize);
+
+    Settings settings("radio", true);
+    const int32_t old_chunk_count = settings.GetInt("n", 0);
+    // Erase the legacy monolithic entry first: on the first chunked save it
+    // would otherwise coexist with the new chunks and fill the tiny NVS
+    // partition. Chunked data (if any) is authoritative, so this is safe.
+    settings.EraseKey("stations");
+    for (int32_t i = 0; i < chunk_count; ++i) {
+        const size_t offset = static_cast<size_t>(i) * kNvsChunkSize;
+        const std::string chunk = json.substr(offset, kNvsChunkSize);
+        if (!settings.SetString("c" + std::to_string(i), chunk)) {
+            ESP_LOGE(TAG, "Failed to save station chunk %d to NVS", static_cast<int>(i));
+            return false;
+        }
+    }
+    if (!settings.SetInt("n", chunk_count)) {
+        ESP_LOGE(TAG, "Failed to save station chunk count to NVS");
+        return false;
+    }
+    // Drop leftover chunks from a previously longer list, so they do not
+    // keep occupying scarce NVS pages.
+    for (int32_t i = chunk_count; i < old_chunk_count; ++i) {
+        settings.EraseKey("c" + std::to_string(i));
+    }
+    ESP_LOGI(TAG, "Saved %d radio stations to NVS in %d chunks", stations.size(),
+             static_cast<int>(chunk_count));
+    return true;
 }
 
 bool Esp32Radio::PlayStation(const std::string& station_name) {
     ESP_LOGI(TAG, "Request to play radio station: %s", station_name.c_str());
 
     // Convert input to lowercase for case-insensitive search
-    std::string lower_input = station_name;
-    std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
+    std::string lower_input = ToLowerAscii(station_name);
 
-    // Keywords used as extra aliases
-    const std::vector<std::pair<std::string, std::string>> aliases = {
-        {"маяк", "MAYAK"},
-        {"mayak", "MAYAK"},
-        {"вести", "VESTI"},
-        {"vesti", "VESTI"},
-        {"россии", "RADIO_ROSSII"},
-        {"европа", "EUROPA_PLUS"},
-        {"europa", "EUROPA_PLUS"},
-        {"ретро", "RETRO_FM"},
-        {"retro", "RETRO_FM"},
-        {"энерджи", "ENERGY"},
-        {"energy", "ENERGY"},
-        {"энергия", "ENERGY"},
-        {"авто", "AVTORADIO"},
-        {"avtoradio", "AVTORADIO"},
-        {"love", "LOVE_RADIO"},
-        {"лав", "LOVE_RADIO"},
-        {"любов", "LOVE_RADIO"},
-        {"юмор", "HUMOR_FM"},
-        {"humor", "HUMOR_FM"},
-        {"шансон", "SHANSON"},
-        {"shanson", "SHANSON"},
-        {"дача", "DACHA"},
-        {"dacha", "DACHA"},
-        {"детск", "DETSKOE"},
-        {"detskoe", "DETSKOE"},
-        {"комсомольск", "KP"},
-        {"kp", "KP"},
-        {"дорожн", "DOROZHNOE"},
-        {"doroghnoe", "DOROZHNOE"},
-        {"дорога", "DOROZHNOE"},
-        {"ультра", "ULTRA"},
-        {"ultra", "ULTRA"},
-        {"мдс", "MDS"},
-        {"mds", "MDS"},
-        {"модель", "MDS"},
-    };
-    for (const auto& alias : aliases) {
-        if (lower_input.find(alias.first) != std::string::npos) {
-            auto it = radio_stations_.find(alias.second);
-            if (it != radio_stations_.end()) {
-                ESP_LOGI(TAG, "Found station by alias '%s' -> %s", alias.first.c_str(),
-                         it->second.name.c_str());
-                current_station_volume_ = it->second.volume;
-                return PlayUrl(it->second.url, it->second.name);
+    RadioStation found;
+    bool found_station = false;
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+
+        // Keywords used as extra aliases, stored per station
+        for (const auto& station : radio_stations_) {
+            for (const auto& alias : station.second.aliases) {
+                std::string lower_alias = ToLowerAscii(alias);
+                if (!lower_alias.empty() && lower_input.find(lower_alias) != std::string::npos) {
+                    ESP_LOGI(TAG, "Found station by alias '%s' -> %s", alias.c_str(),
+                             station.second.name.c_str());
+                    found = station.second;
+                    found_station = true;
+                    break;
+                }
+            }
+            if (found_station) {
+                break;
+            }
+        }
+
+        // Next, try to find by station display name (case insensitive partial match)
+        if (!found_station) {
+            for (const auto& station : radio_stations_) {
+                std::string lower_station_name = ToLowerAscii(station.second.name);
+                if (lower_station_name.find(lower_input) != std::string::npos ||
+                    lower_input.find(lower_station_name) != std::string::npos) {
+                    ESP_LOGI(TAG, "Found station by display name: '%s' -> %s", station_name.c_str(),
+                             station.second.name.c_str());
+                    found = station.second;
+                    found_station = true;
+                    break;
+                }
+            }
+        }
+
+        // Finally, try to find by station key (case insensitive)
+        if (!found_station) {
+            for (const auto& station : radio_stations_) {
+                if (ToLowerAscii(station.first) == lower_input) {
+                    ESP_LOGI(TAG, "Found station by key (case insensitive): '%s' -> %s",
+                             station_name.c_str(), station.second.name.c_str());
+                    found = station.second;
+                    found_station = true;
+                    break;
+                }
             }
         }
     }
 
-    // First, try to find by station display name (case insensitive partial match)
-    for (const auto& station : radio_stations_) {
-        std::string lower_station_name = station.second.name;
-        std::transform(lower_station_name.begin(), lower_station_name.end(),
-                       lower_station_name.begin(), ::tolower);
-        if (lower_station_name.find(lower_input) != std::string::npos ||
-            lower_input.find(lower_station_name) != std::string::npos) {
-            ESP_LOGI(TAG, "Found station by display name: '%s' -> %s", station_name.c_str(),
-                     station.second.name.c_str());
-            current_station_volume_ = station.second.volume;
-            return PlayUrl(station.second.url, station.second.name);
-        }
+    if (!found_station) {
+        ESP_LOGE(TAG, "Radio station not found: %s", station_name.c_str());
+        return false;
     }
 
-    // Second, try to find by station key (case insensitive)
-    for (const auto& station : radio_stations_) {
-        std::string lower_key = station.first;
-        std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), ::tolower);
-        if (lower_key == lower_input) {
-            ESP_LOGI(TAG, "Found station by key (case insensitive): '%s' -> %s",
-                     station_name.c_str(), station.second.name.c_str());
-            current_station_volume_ = station.second.volume;
-            return PlayUrl(station.second.url, station.second.name);
-        }
-    }
-
-    ESP_LOGE(TAG, "Radio station not found: %s", station_name.c_str());
-    return false;
+    current_station_volume_ = found.volume;
+    return PlayUrl(found.url, found.name);
 }
 
 bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& station_name) {
@@ -349,10 +592,104 @@ void Esp32Radio::StopLocked() {
 
 std::vector<std::string> Esp32Radio::GetStationList() const {
     std::vector<std::string> station_list;
+    std::lock_guard<std::mutex> lock(stations_mutex_);
     for (const auto& station : radio_stations_) {
-        station_list.push_back(station.first + " - " + station.second.name);
+        std::string entry = station.first + " - " + station.second.name;
+        if (!station.second.aliases.empty()) {
+            entry += " (";
+            for (size_t i = 0; i < station.second.aliases.size(); ++i) {
+                if (i > 0) {
+                    entry += ", ";
+                }
+                entry += station.second.aliases[i];
+            }
+            entry += ")";
+        }
+        station_list.push_back(entry);
     }
     return station_list;
+}
+
+std::map<std::string, RadioStation> Esp32Radio::GetStations() const {
+    std::lock_guard<std::mutex> lock(stations_mutex_);
+    return radio_stations_;
+}
+
+bool Esp32Radio::AddStation(const std::string& key, const RadioStation& station) {
+    RadioStation normalized = NormalizeStation(station);
+    if (!IsValidStationKey(key) || !IsValidStation(normalized)) {
+        ESP_LOGE(TAG, "Rejected invalid station: key=%s name=%s", key.c_str(),
+                 normalized.name.c_str());
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        if (radio_stations_.find(key) != radio_stations_.end()) {
+            ESP_LOGE(TAG, "Station key already exists: %s", key.c_str());
+            return false;
+        }
+        radio_stations_[key] = normalized;
+    }
+    if (!SaveStations()) {
+        // Keep RAM in sync with NVS: drop the station we just added.
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        radio_stations_.erase(key);
+        return false;
+    }
+    return true;
+}
+
+bool Esp32Radio::UpdateStation(const std::string& key, const RadioStation& station) {
+    RadioStation normalized = NormalizeStation(station);
+    if (!IsValidStationKey(key) || !IsValidStation(normalized)) {
+        ESP_LOGE(TAG, "Rejected invalid station: key=%s name=%s", key.c_str(),
+                 normalized.name.c_str());
+        return false;
+    }
+    RadioStation previous;
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        auto it = radio_stations_.find(key);
+        if (it == radio_stations_.end()) {
+            ESP_LOGE(TAG, "Station not found for update: %s", key.c_str());
+            return false;
+        }
+        previous = it->second;
+        it->second = normalized;
+    }
+    if (!SaveStations()) {
+        // Keep RAM in sync with NVS: restore the previous station data.
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        radio_stations_[key] = previous;
+        return false;
+    }
+    return true;
+}
+
+bool Esp32Radio::DeleteStation(const std::string& key) {
+    bool was_playing_station = false;
+    RadioStation removed;
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        auto it = radio_stations_.find(key);
+        if (it == radio_stations_.end()) {
+            ESP_LOGE(TAG, "Station not found for delete: %s", key.c_str());
+            return false;
+        }
+        was_playing_station = IsPlaying() && current_station_name_ == it->second.name;
+        removed = it->second;
+        radio_stations_.erase(it);
+    }
+    if (!SaveStations()) {
+        // Keep RAM in sync with NVS: put the station back.
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        radio_stations_[key] = removed;
+        return false;
+    }
+    if (was_playing_station) {
+        Stop();
+    }
+    return true;
 }
 
 void Esp32Radio::DownloadRadioStream(const std::string& radio_url) {

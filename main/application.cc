@@ -6,6 +6,7 @@
 #include "cjson_utils.h"
 #include "display.h"
 #include "features/music/esp32_radio.h"
+#include "features/music/radio_web_server.h"
 #include "features/timer/countdown_timer.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
@@ -59,12 +60,15 @@ Application::~Application() {
     if (startup_wake_word_hint_timer_ != nullptr) {
         esp_timer_stop(startup_wake_word_hint_timer_);
         esp_timer_delete(startup_wake_word_hint_timer_);
+    }    if (radio_web_server_ != nullptr) {
+        delete radio_web_server_;  // Stops the HTTP server before radio teardown
+        radio_web_server_ = nullptr;
     }
 	    if (radio_ != nullptr) {
-        radio_->Stop();
-        delete radio_;
-        radio_ = nullptr;
-    }
+	        radio_->Stop();
+	        delete radio_;
+	        radio_ = nullptr;
+	    }
     delete timer_;
     timer_ = nullptr;
     vEventGroupDelete(event_group_);
@@ -122,6 +126,11 @@ void Application::Initialize() {
     if (radio_ != nullptr) {
         radio_->Initialize();
     }
+
+    // Web UI for managing the station list (add/edit/delete + voice aliases).
+    // The server itself is started in HandleNetworkConnectedEvent(): starting
+    // httpd before the TCP/IP stack is up crashes in tcpip_send_msg_wait_sem.
+    radio_web_server_ = new RadioWebServer();
 
     // Create the countdown timer (idle until a timer is requested)
     timer_ = new CountdownTimer();
@@ -327,6 +336,13 @@ void Application::Run() {
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+
+    // Now the TCP/IP stack is up: safe to start the radio Web UI server.
+    // Start() is idempotent, so reconnects do not restart it.
+    if (radio_web_server_ != nullptr && radio_ != nullptr) {
+        radio_web_server_->Start(radio_);
+    }
+
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {

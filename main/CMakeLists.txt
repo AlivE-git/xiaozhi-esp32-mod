@@ -19,6 +19,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
             "features/music/esp32_radio.cc"
+            "features/music/radio_web_server.cc"
             "features/timer/countdown_timer.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
@@ -1205,6 +1206,7 @@ idf_component_register(SRCS ${SOURCES}
                     PRIV_REQUIRES
                         esp_pm
                         esp_psram
+                        esp_http_server
                         esp_netif
                         esp_eth
                         esp_driver_gpio

@@ -23,6 +23,7 @@
 #include "notify/notify_player.h"
 
 class Esp32Radio;
+class RadioWebServer;
 class CountdownTimer;
 
 // Main event bits
@@ -130,6 +131,7 @@ public:
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
     Esp32Radio* GetRadio() { return radio_; }
+    RadioWebServer* GetRadioWebServer() { return radio_web_server_; }
     CountdownTimer* GetTimer() { return timer_; }
 
     /**
@@ -159,6 +161,7 @@ private:
     uint32_t notification_playback_id_ = 0;
     std::unique_ptr<Ota> ota_;
 	Esp32Radio* radio_ = nullptr;
+	RadioWebServer* radio_web_server_ = nullptr;
 	CountdownTimer* timer_ = nullptr;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;

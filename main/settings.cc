@@ -37,13 +37,18 @@ std::string Settings::GetString(const std::string& key, const std::string& defau
     return value;
 }
 
-void Settings::SetString(const std::string& key, const std::string& value) {
-    if (read_write_) {
-        ESP_ERROR_CHECK(nvs_set_str(nvs_handle_, key.c_str(), value.c_str()));
-        dirty_ = true;
-    } else {
+bool Settings::SetString(const std::string& key, const std::string& value) {
+    if (!read_write_) {
         ESP_LOGW(TAG, "Namespace %s is not open for writing", ns_.c_str());
+        return false;
     }
+    esp_err_t err = nvs_set_str(nvs_handle_, key.c_str(), value.c_str());
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_set_str failed for key '%s': %s", key.c_str(), esp_err_to_name(err));
+        return false;
+    }
+    dirty_ = true;
+    return true;
 }
 
 int32_t Settings::GetInt(const std::string& key, int32_t default_value) {
@@ -58,13 +63,18 @@ int32_t Settings::GetInt(const std::string& key, int32_t default_value) {
     return value;
 }
 
-void Settings::SetInt(const std::string& key, int32_t value) {
-    if (read_write_) {
-        ESP_ERROR_CHECK(nvs_set_i32(nvs_handle_, key.c_str(), value));
-        dirty_ = true;
-    } else {
+bool Settings::SetInt(const std::string& key, int32_t value) {
+    if (!read_write_) {
         ESP_LOGW(TAG, "Namespace %s is not open for writing", ns_.c_str());
+        return false;
     }
+    esp_err_t err = nvs_set_i32(nvs_handle_, key.c_str(), value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_set_i32 failed for key '%s': %s", key.c_str(), esp_err_to_name(err));
+        return false;
+    }
+    dirty_ = true;
+    return true;
 }
 
 bool Settings::GetBool(const std::string& key, bool default_value) {
