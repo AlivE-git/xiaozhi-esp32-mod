@@ -805,6 +805,10 @@ elseif(CONFIG_BOARD_TYPE_SEEED_XIAO_ESP32S3_RESPEAKER_XVF3800)
     set(BOARD_DIR "seeed/xiao-esp32s3-respeaker-xvf3800")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
     set(BUILTIN_ICON_FONT font_material_symbols_14_1)
+elseif(CONFIG_BOARD_TYPE_SEEED_XIAO_ESP32S3_PLUS)
+    set(BOARD_DIR "seeed/xiao-esp32s3-plus")
+    set(BUILTIN_TEXT_FONT font_noto_sans_basic_14_1)
+    set(BUILTIN_ICON_FONT font_material_symbols_14_1)
 elseif(CONFIG_BOARD_TYPE_DOIT_S3_AIBOX)
     set(BOARD_DIR "doit-s3-aibox")
 elseif(CONFIG_BOARD_TYPE_MIXGO_NOVA)
@@ -1210,6 +1214,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_driver_jpeg
                         esp_driver_ppa
                         esp_driver_tsens
+                        esp_driver_touch_sens
                         esp_app_format
                         app_update
                         spi_flash
