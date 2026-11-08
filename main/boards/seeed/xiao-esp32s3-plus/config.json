@@ -1,0 +1,21 @@
+{
+    "type": "xiao-esp32s3-plus",
+    "manufacturer": "seeed",
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "xiao-esp32s3-plus",
+            "sdkconfig_append": [
+                "CONFIG_BOARD_TYPE_SEEED_XIAO_ESP32S3_PLUS=y",
+                "CONFIG_OLED_SSD1306_128X32=y"
+            ]
+        },
+        {
+            "name": "xiao-esp32s3-plus-128x64",
+            "sdkconfig_append": [
+                "CONFIG_BOARD_TYPE_SEEED_XIAO_ESP32S3_PLUS=y",
+                "CONFIG_OLED_SSD1306_128X64=y"
+            ]
+        }
+    ]
+}
