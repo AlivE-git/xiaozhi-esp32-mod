@@ -21,6 +21,8 @@
 #include "device_state_machine.h"
 #include "notify/notify_player.h"
 
+class Esp32Radio;
+
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
 #define MAIN_EVENT_SEND_AUDIO           (1 << 1)
@@ -118,7 +120,8 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
-    
+    Esp32Radio* GetRadio() { return radio_; }
+	
     /**
      * Reset protocol resources (thread-safe)
      * Can be called from any task to release resources allocated after network connected
@@ -145,7 +148,8 @@ private:
     NotifyPlayer notify_player_;
     uint32_t notification_playback_id_ = 0;
     std::unique_ptr<Ota> ota_;
-
+	Esp32Radio* radio_ = nullptr;
+	
     std::function<void(const std::string&)> mcp_broadcast_callback_;
 
     bool has_server_time_ = false;

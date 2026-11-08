@@ -145,6 +145,10 @@ public:
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
+	// Refresh the output power watchdog when playback happens outside the audio
+    // service (the radio feeds the codec directly). Without this the watchdog
+    // would power the output down mid-stream.
+    void NotifyExternalOutputActivity();
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);

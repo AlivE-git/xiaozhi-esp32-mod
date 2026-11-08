@@ -15,6 +15,7 @@
 #include "application.h"
 #include "board.h"
 #include "display.h"
+#include "features/music/esp32_radio.h"
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
 #include "settings.h"
@@ -115,6 +116,50 @@ void McpServer::AddCommonTools() {
                 });
     }
 #endif
+
+    // Internet radio control
+    auto radio = Application::GetInstance().GetRadio();
+    if (radio) {
+        AddTool("self.radio.play_station",
+                "Play a radio station by name. Station names are in Russian; names/keywords are "
+                "matched case-insensitively (partial match also works). Example station names: "
+                "'Маяк', 'Европа Плюс', 'Авторадио', 'Ретро FM', 'Радио Шансон'. Use "
+                "self.radio.get_stations to list all stations.",
+                PropertyList({Property("station_name", kPropertyTypeString)}),
+                [radio](const PropertyList& properties) -> ReturnValue {
+                    auto station_name = properties["station_name"].value<std::string>();
+                    if (radio->PlayStation(station_name)) {
+                        return "Playing radio station: " + station_name;
+                    }
+                    return std::string(
+                        "Ошибка: станция не найдена. Используйте self.radio.get_stations для "
+                        "списка станций. Пример: Маяк, Европа Плюс, Авторадио");
+                });
+        AddTool("self.radio.play_url",
+                "Play a custom radio stream by direct URL (http/https mp3 or aac stream).",
+                PropertyList({Property("url", kPropertyTypeString)}),
+                [radio](const PropertyList& properties) -> ReturnValue {
+                    auto url = properties["url"].value<std::string>();
+                    if (radio->PlayUrl(url, "")) {
+                        return "Playing radio url: " + url;
+                    }
+                    return std::string("Ошибка: не удалось начать воспроизведение URL");
+                });
+        AddTool("self.radio.stop", "Stop the currently playing radio stream.", PropertyList(),
+                [radio](const PropertyList& properties) -> ReturnValue {
+                    radio->Stop();
+                    return std::string("Stopping radio");
+                });
+        AddTool("self.radio.get_stations",
+                "List all available radio stations with their keys and display names.",
+                PropertyList(), [radio](const PropertyList& properties) -> ReturnValue {
+                    std::string response = "Available radio stations:\n";
+                    for (const auto& s : radio->GetStationList()) {
+                        response += "- " + s + "\n";
+                    }
+                    return response;
+                });
+    }
 
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), std::make_move_iterator(original_tools.begin()),
@@ -526,7 +571,7 @@ void McpServer::ReplyError(int id, const std::string& message,
 
 void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_only_tools,
                              const ResponseSender& response_sender) {
-    const int max_payload_size = 8000;
+    const int max_payload_size = 20000;
     std::string json = "{\"tools\":[";
 
     bool found_cursor = cursor.empty();

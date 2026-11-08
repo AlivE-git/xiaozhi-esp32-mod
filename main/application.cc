@@ -5,6 +5,7 @@
 #include "board.h"
 #include "cjson_utils.h"
 #include "display.h"
+#include "features/music/esp32_radio.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
 #include "settings.h"
@@ -58,6 +59,11 @@ Application::~Application() {
         esp_timer_stop(startup_wake_word_hint_timer_);
         esp_timer_delete(startup_wake_word_hint_timer_);
     }
+	    if (radio_ != nullptr) {
+        radio_->Stop();
+        delete radio_;
+        radio_ = nullptr;
+    }
     vEventGroupDelete(event_group_);
 }
 
@@ -105,6 +111,12 @@ void Application::Initialize() {
 
     // Start the clock timer to update the status bar
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
+
+    // Create the internet radio player (stations only, playback starts on demand)
+    radio_ = new Esp32Radio();
+    if (radio_ != nullptr) {
+        radio_->Initialize();
+    }
 
     // Add MCP common tools (only once during initialization)
     auto& mcp_server = McpServer::GetInstance();
@@ -654,7 +666,12 @@ void Application::InitializeProtocol() {
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
                     if (GetDeviceState() == kDeviceStateSpeaking) {
-                        if (listening_mode_ == kListeningModeManualStop) {
+                        // If the radio is playing, return to standby (idle) so
+                        // the radio keeps playing and the device listens for the
+                        // wake word instead of staying in the chat session.
+                        if (radio_ != nullptr && radio_->IsPlaying()) {
+                            SetDeviceState(kDeviceStateIdle);
+                        } else if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
                         } else {
                             SetDeviceState(kDeviceStateListening);
@@ -826,6 +843,21 @@ void Application::HandleToggleChatEvent() {
     if (!protocol_) {
         ESP_LOGE(TAG, "Protocol not initialized");
         return;
+    }
+
+    // A tap/button press while the radio is playing stops the playback and,
+    // from the idle state, starts listening for a command immediately
+    // (no wake word needed) instead of returning to standby.
+    if (radio_ != nullptr && radio_->IsPlaying()) {
+        ESP_LOGI(TAG, "Stopping radio playback due to tap; starting to listen");
+        radio_->Stop();
+        if (state == kDeviceStateListening) {
+            protocol_->CloseAudioChannel();
+            return;
+        } else if (state == kDeviceStateSpeaking) {
+            AbortSpeaking(kAbortReasonNone);
+            return;
+        }
     }
 
     if (state == kDeviceStateIdle) {
@@ -1392,6 +1424,11 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
 
 bool Application::CanEnterSleepMode() {
     if (GetDeviceState() != kDeviceStateIdle) {
+        return false;
+    }
+
+    // Keep the device awake while the radio is playing.
+    if (radio_ != nullptr && radio_->IsPlaying()) {
         return false;
     }
 

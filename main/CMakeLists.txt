@@ -18,6 +18,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/text_glyph.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
+			"features/music/esp32_radio.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
             "display/lvgl_display/emoji_collection.cc"
@@ -43,7 +44,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/music")
 
 # Add board common files
 list(APPEND SOURCES
@@ -1224,6 +1225,7 @@ idf_component_register(SRCS ${SOURCES}
                         bt
                         fatfs
                         xiaozhi-fonts
+						espressif__esp-dsp
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
 

@@ -789,6 +789,17 @@ void AudioService::PlaySound(const std::string_view& ogg) {
     demuxer->Process(buf, size);
 }
 
+void AudioService::NotifyExternalOutputActivity() {
+    // The radio writes PCM directly through the codec, so the power watchdog
+    // never sees its activity. Refresh the output timestamp (and keep the
+    // watchdog running) so idle power-down still happens strictly after
+    // external playback has finished.
+    last_output_time_ = std::chrono::steady_clock::now();
+    if (!esp_timer_is_active(audio_power_timer_)) {
+        esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
+    }
+}
+
 bool AudioService::IsIdle() {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     return audio_encode_queue_.empty() && IsPlaybackDrainedLocked() && audio_testing_queue_.empty();
