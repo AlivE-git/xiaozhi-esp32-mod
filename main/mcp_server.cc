@@ -123,8 +123,7 @@ void McpServer::AddCommonTools() {
     if (radio) {
         AddTool("self.radio.play_station",
                 "Play a radio station by name. Station names are in Russian; names/keywords are "
-                "matched case-insensitively (partial match also works). Example station names: "
-                "'Маяк', 'Европа Плюс', 'Авторадио', 'Ретро FM', 'Радио Шансон'. Use "
+                "matched case-insensitively (partial match also works). Use "
                 "self.radio.get_stations to list all stations.",
                 PropertyList({Property("station_name", kPropertyTypeString)}),
                 [radio](const PropertyList& properties) -> ReturnValue {
@@ -134,7 +133,7 @@ void McpServer::AddCommonTools() {
                     }
                     return std::string(
                         "Ошибка: станция не найдена. Используйте self.radio.get_stations для "
-                        "списка станций. Пример: Маяк, Европа Плюс, Авторадио");
+                        "списка станций.");
                 });
         AddTool("self.radio.play_url",
                 "Play a custom radio stream by direct URL (http/https mp3 or aac stream).",

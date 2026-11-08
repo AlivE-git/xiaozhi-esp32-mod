@@ -91,100 +91,12 @@ void Esp32Radio::Initialize() {
 }
 
 void Esp32Radio::InitializeRadioStations() {
+    // The list starts empty on a fresh device: stations are added by the user
+    // from the Web UI and only then persisted to NVS.
     if (!LoadStations()) {
-        ESP_LOGW(TAG, "No saved stations found, seeding default stations");
-        SeedDefaultStations();
-        SaveStations();
+        ESP_LOGI(TAG, "No saved stations found, starting with an empty list");
     }
     ESP_LOGI(TAG, "Initialized %d radio stations", radio_stations_.size());
-}
-
-void Esp32Radio::SeedDefaultStations() {
-    // Russian radio stations. Streams are MP3 unless noted, supported by the
-    // ESP Audio simple decoder. Volume values: 1.0 = 100%, 2.0 = 200%, etc.
-    // These defaults are saved to NVS on first boot and can afterwards be
-    // edited from the Web UI; custom streams can also be started with PlayUrl().
-
-    // === Новости / разговорные ===
-    radio_stations_["MAYAK"] =
-        RadioStation("Маяк", "http://icecast.vgtrk.cdnvideo.ru/mayakfm_mp3_192kbps",
-                     "Новости 24/7 и музыка", "News", 1.0f);
-    radio_stations_["VESTI"] =
-        RadioStation("Вести FM", "http://icecast.vgtrk.cdnvideo.ru/vestifm_mp3_192kbps", "Новости",
-                     "News", 1.0f);
-    radio_stations_["RADIO_ROSSII"] =
-        RadioStation("Радио России", "http://icecast.vgtrk.cdnvideo.ru/rrzonam_mp3_128kbps",
-                     "Новости и разговорные программы", "News/Talk", 1.0f);
-    radio_stations_["KP"] = RadioStation(
-        "Комсомольская правда", "http://kpradio.hostingradio.ru:8000/russia.radiokp128.mp3",
-        "Разговоры и новости", "Talk", 1.0f);
-
-    // === Музыка / развлечения ===
-    radio_stations_["EUROPA_PLUS"] =
-        RadioStation("Европа Плюс", "http://ep256.hostingradio.ru:8052/europaplus256.mp3",
-                     "Танцевальная и популярная музыка", "Pop/Dance", 1.0f);
-    radio_stations_["RETRO_FM"] =
-        RadioStation("Ретро FM", "http://retroserver.streamr.ru:8043/retro256.mp3",
-                     "Хиты прошлых лет", "Pop", 1.0f);
-    radio_stations_["ENERGY"] =
-        RadioStation("Радио ENERGY", "https://srv02.gpmradio.ru:8443/stream/air/aac/64/99",
-                     "Танцевальная музыка", "Dance", 1.0f);
-    radio_stations_["AVTORADIO"] =
-        RadioStation("Авторадио", "http://178.88.167.62:8080/AVTORADIO_192",
-                     "Музыка и автомобильный юмор", "Pop", 1.0f);
-    radio_stations_["LOVE_RADIO"] = RadioStation(
-        "Love Radio", "http://radio.o2promo.ru:4060/stream", "Романтическая музыка", "Pop", 1.0f);
-    radio_stations_["HUMOR_FM"] =
-        RadioStation("Юмор FM", "https://gpm.hostingradio.ru/gpm-humorfm495.aacp", "Юмор и сатира",
-                     "Comedy", 1.0f);
-    radio_stations_["SHANSON"] =
-        RadioStation("Радио Шансон", "http://chanson.hostingradio.ru:8041/chanson128.mp3", "Шансон",
-                     "Chanson", 1.0f);
-    radio_stations_["DACHA"] = RadioStation(
-        "Радио Дача",
-        "https://stream.n340.com/14_dacha_64?type=aac&UID=AF2C3AB947218127F59F62740712F61D",
-        "Популярная музыка", "Pop", 1.0f);
-    radio_stations_["DETSKOE"] =
-        RadioStation("Детское радио", "https://gpm.hostingradio.ru/gpm-detifm495.aacp",
-                     "Детские песни и сказки", "Kids", 1.0f);
-    radio_stations_["DOROZHNOE"] =
-        RadioStation("Дорожное радио", "http://dorognoe.hostingradio.ru:8000/radio",
-                     "Музыка для дороги", "Pop", 1.0f);
-    radio_stations_["ULTRA"] =
-        RadioStation("Радио Ультра", "http://nashe1.hostingradio.ru:80/ultra-192.mp3",
-                     "Рок музыка", "Rock", 1.0f);
-
-    // === Авторские / нестандартные ===
-    radio_stations_["MDS"] =
-        RadioStation("Модель Для Сборки", "http://mds-station.com:8000/mds",
-                     "Литературный аудиопроект МДС, станция I", "Talk/Literature", 1.0f);
-
-    // Default keywords used as extra aliases for voice search. Editable from
-    // the Web UI together with the stations.
-    const std::map<std::string, std::vector<std::string>> default_aliases = {
-        {"MAYAK", {"маяк", "mayak"}},
-        {"VESTI", {"вести", "vesti"}},
-        {"RADIO_ROSSII", {"россии"}},
-        {"KP", {"комсомольск", "kp"}},
-        {"EUROPA_PLUS", {"европа", "europa"}},
-        {"RETRO_FM", {"ретро", "retro"}},
-        {"ENERGY", {"энерджи", "energy", "энергия"}},
-        {"AVTORADIO", {"авто", "avtoradio"}},
-        {"LOVE_RADIO", {"love", "лав", "любов"}},
-        {"HUMOR_FM", {"юмор", "humor"}},
-        {"SHANSON", {"шансон", "shanson"}},
-        {"DACHA", {"дача", "dacha"}},
-        {"DETSKOE", {"детск", "detskoe"}},
-        {"DOROZHNOE", {"дорожн", "doroghnoe", "дорога"}},
-        {"ULTRA", {"ультра", "ultra"}},
-        {"MDS", {"мдс", "mds", "модель"}},
-    };
-    for (const auto& [key, aliases] : default_aliases) {
-        auto it = radio_stations_.find(key);
-        if (it != radio_stations_.end()) {
-            it->second.aliases = aliases;
-        }
-    }
 }
 
 namespace {

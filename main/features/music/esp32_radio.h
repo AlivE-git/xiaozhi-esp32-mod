@@ -51,9 +51,9 @@ private:
     std::string current_station_url_;
     float current_station_volume_;  // Current station's volume amplification factor
 
-    // Station list keyed by station key. Loaded from NVS; seeded with the
-    // default stations on first boot. Guarded by stations_mutex_ because the
-    // MCP task and the Web UI task both access it.
+    // Station list keyed by station key. Loaded from NVS and empty on first
+    // boot. Guarded by stations_mutex_ because the MCP task and the Web UI task
+    // both access it.
     mutable std::mutex stations_mutex_;
     std::map<std::string, RadioStation> radio_stations_;
 
@@ -82,7 +82,6 @@ private:
 
     // Private methods
     void InitializeRadioStations();
-    void SeedDefaultStations();
     bool LoadStations();
     bool SaveStations();
     void DownloadRadioStream(const std::string& radio_url);

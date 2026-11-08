@@ -182,7 +182,7 @@ function renderRows(){
   const stations=stationsCache;
   const tb=document.getElementById('rows');tb.innerHTML='';
   if(stations.length===0){
-    tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">Станций пока нет. Добавьте первую через форму выше.</td></tr>';
+    tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">Станций пока нет. Добавьте первую через форму выше или импортируйте список.</td></tr>';
     return;}
   stations.forEach(s=>{
     const current=isCurrent(s);
