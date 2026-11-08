@@ -15,6 +15,9 @@ class Esp32Radio;
 //        PUT    /api/stations?key=KEY - edit a station
 //        DELETE /api/stations?key=KEY - delete a station
 //        POST   /api/import   - replace the whole list from an exported JSON file
+//        GET    /api/status   - {playing, currentKey, currentStation}
+//        POST   /api/play?key=KEY - start playing a station by key
+//        POST   /api/stop     - stop playback
 class RadioWebServer {
 public:
     RadioWebServer();
@@ -32,10 +35,16 @@ private:
     static esp_err_t PageHandler(httpd_req_t* req);
     static esp_err_t StationsHandler(httpd_req_t* req);
     static esp_err_t ImportHandler(httpd_req_t* req);
+    static esp_err_t StatusHandler(httpd_req_t* req);
+    static esp_err_t PlayHandler(httpd_req_t* req);
+    static esp_err_t StopHandler(httpd_req_t* req);
 
     esp_err_t HandlePage(httpd_req_t* req);
     esp_err_t HandleStations(httpd_req_t* req);
     esp_err_t HandleImport(httpd_req_t* req);
+    esp_err_t HandleStatus(httpd_req_t* req);
+    esp_err_t HandlePlay(httpd_req_t* req);
+    esp_err_t HandleStop(httpd_req_t* req);
 
     std::string StationsJson() const;
     esp_err_t SendJson(httpd_req_t* req, int status, const std::string& body);

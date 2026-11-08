@@ -47,6 +47,7 @@ struct RadioStation {
 class Esp32Radio : public Radio {
 private:
     std::string current_station_name_;
+    std::string current_station_key_;  // Key of the playing station, empty for custom URLs
     std::string current_station_url_;
     float current_station_volume_;  // Current station's volume amplification factor
 
@@ -104,6 +105,11 @@ public:
     // Play a specific station
     virtual bool PlayStation(const std::string& station_name) override;
 
+    // Play a station by its exact key (used by the Web UI, where the key is
+    // already known and fuzzy name/alias matching must not kick in). Applies
+    // the station's volume like PlayStation() does.
+    bool PlayStationByKey(const std::string& key);
+
     // Play a station from a specific URL
     virtual bool PlayUrl(const std::string& radio_url,
                          const std::string& station_name = "") override;
@@ -129,6 +135,7 @@ public:
     // Get current playback status
     virtual bool IsPlaying() const override { return is_playing_; }
     virtual std::string GetCurrentStation() const override { return current_station_name_; }
+    std::string GetCurrentStationKey() const { return current_station_key_; }
 
     // Buffer status
     virtual size_t GetBufferSize() const override { return buffer_size_; }

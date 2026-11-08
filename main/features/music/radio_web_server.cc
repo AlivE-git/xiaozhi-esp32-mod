@@ -18,7 +18,7 @@ constexpr size_t kMaxBodySize = 16384;
 // Compact station management page. The form fields map 1:1 to the JSON API:
 // key, name, url, description, genre, volume and aliases ("Keywords used as
 // extra aliases", comma separated).
-const char kPageHtml[] = R"HTML(<!DOCTYPE html>
+const char kPageHtml[] = "<!-- radio web ui build " __DATE__ " " __TIME__ " -->\n" R"HTML(<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>XiaoZhi — Радиостанции</title>
@@ -40,7 +40,10 @@ body{background:#f1f4f8}
    <h1 class="h4 mb-0">Радиостанции</h1>
    <div class="small text-white-50">Управление списком станций XiaoZhi</div>
   </div>
-  <span id="countBadge" class="badge rounded-pill ms-auto">0 станций</span>
+  <div class="ms-auto d-flex align-items-center gap-2">
+   <span id="nowPlaying" class="badge text-bg-success d-none">▶</span>
+   <span id="countBadge" class="badge rounded-pill">0 станций</span>
+  </div>
  </div>
 </header>
 <main class="container py-4">
@@ -111,36 +114,75 @@ body{background:#f1f4f8}
 </main>
 <script>
 let editingKey=null;
+let stationsCache=[];
+let playback={playing:false,currentKey:'',currentStation:''};
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function msg(t,ok){
   const el=document.getElementById('msg');
   el.textContent=t;
   el.className='alert '+(ok===false?'alert-danger':'alert-success');
 }
-async function load(){
-  const r=await fetch('/api/stations');const data=await r.json();
-  const stations=data.stations||[];
+function isCurrent(s){return playback.playing&&playback.currentKey===s.key}
+function renderRows(){
+  const stations=stationsCache;
   document.getElementById('countBadge').textContent=stations.length+' станций';
   const tb=document.getElementById('rows');tb.innerHTML='';
   if(stations.length===0){
     tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">Станций пока нет. Добавьте первую через форму выше.</td></tr>';
     return;}
   stations.forEach(s=>{
+    const current=isCurrent(s);
     const tr=document.createElement('tr');
+    if(current)tr.className='table-success';
     const genre=s.genre?' <span class="badge text-bg-secondary">'+esc(s.genre)+'</span>':'';
+    const playingBadge=current?' <span class="badge text-bg-success">▶ играет</span>':'';
     const desc=s.description?'<div class="small text-muted">'+esc(s.description)+'</div>':'';
     tr.innerHTML='<td><code>'+esc(s.key)+'</code></td>'
-      +'<td><strong>'+esc(s.name)+'</strong>'+genre+desc+'</td>'
+      +'<td><strong>'+esc(s.name)+'</strong>'+genre+playingBadge+desc+'</td>'
       +'<td class="url">'+esc(s.url)+'</td>'
       +'<td>'+esc((s.aliases||[]).join(', '))+'</td>';
     const td=document.createElement('td');td.className='actions';
-    const eb=document.createElement('button');eb.className='btn btn-sm btn-outline-primary me-1';eb.textContent='✏️ Изменить';
+    const pb=document.createElement('button');
+    if(current){pb.className='btn btn-sm btn-danger me-1';pb.textContent='⏹';pb.onclick=()=>stopPlayback(pb);}
+    else{pb.className='btn btn-sm btn-success me-1';pb.textContent='▶';pb.onclick=()=>playStation(s.key,pb);}
+    const eb=document.createElement('button');eb.className='btn btn-sm btn-outline-primary me-1';eb.textContent='✏️';
     eb.onclick=()=>startEdit(s);
-    const db=document.createElement('button');db.className='btn btn-sm btn-outline-danger';db.textContent='🗑 Удалить';
+    const db=document.createElement('button');db.className='btn btn-sm btn-outline-danger';db.textContent='🗑';
     db.onclick=async()=>{if(!confirm('Удалить станцию '+s.key+'?'))return;
       const rr=await fetch('/api/stations?key='+encodeURIComponent(s.key),{method:'DELETE'});
       msg(rr.ok?'Станция удалена':'Не удалось удалить',rr.ok);load();};
-    td.append(eb,db);tr.appendChild(td);tb.appendChild(tr);});
+    td.append(pb,eb,db);tr.appendChild(td);tb.appendChild(tr);});
+}
+async function load(){
+  const r=await fetch('/api/stations');const data=await r.json();
+  stationsCache=data.stations||[];
+  renderRows();
+}
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/status');
+    if(!r.ok)return;
+    const st=await r.json();
+    const changed=st.playing!==playback.playing||st.currentKey!==playback.currentKey;
+    playback={playing:!!st.playing,currentKey:st.currentKey||'',currentStation:st.currentStation||''};
+    const np=document.getElementById('nowPlaying');
+    if(playback.playing){np.textContent='▶ '+playback.currentStation;np.classList.remove('d-none');}
+    else{np.classList.add('d-none');}
+    if(changed)renderRows();
+  }catch(e){/* device unreachable; keep last state */}
+}
+async function playStation(key,btn){
+  btn.disabled=true;
+  const r=await fetch('/api/play?key='+encodeURIComponent(key),{method:'POST'});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'▶ Воспроизведение запущено':'Не удалось запустить: '+(res.error||r.status),r.ok);
+  await loadStatus();
+}
+async function stopPlayback(btn){
+  btn.disabled=true;
+  const r=await fetch('/api/stop',{method:'POST'});
+  msg(r.ok?'⏹ Воспроизведение остановлено':'Не удалось остановить',r.ok);
+  await loadStatus();
 }
 function startEdit(s){
   editingKey=s.key;
@@ -207,6 +249,8 @@ document.getElementById('importFile').onchange=async e=>{
   e.target.value='';
 };
 load();
+loadStatus();
+setInterval(loadStatus,3000);
 </script></body></html>)HTML";
 
 std::vector<std::string> SplitAliases(const std::string& value) {
@@ -306,6 +350,8 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     config.server_port = port;
     config.max_open_sockets = 7;
     config.ctrl_port = 32770;
+    // We register 9 handlers; the default limit (8) is not enough.
+    config.max_uri_handlers = 16;
 
     httpd_uri_t page_uri = {
         .uri = "/",
@@ -332,19 +378,46 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
         .handler = ImportHandler,
         .user_ctx = nullptr,
     };
+    httpd_uri_t status_uri = {
+        .uri = "/api/status",
+        .method = HTTP_GET,
+        .handler = StatusHandler,
+        .user_ctx = nullptr,
+    };
+    httpd_uri_t play_uri = {
+        .uri = "/api/play",
+        .method = HTTP_POST,
+        .handler = PlayHandler,
+        .user_ctx = nullptr,
+    };
+    httpd_uri_t stop_uri = {
+        .uri = "/api/stop",
+        .method = HTTP_POST,
+        .handler = StopHandler,
+        .user_ctx = nullptr,
+    };
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
         server_handle_ = nullptr;
         return false;
     }
-    httpd_register_uri_handler(server_handle_, &page_uri);
-    httpd_register_uri_handler(server_handle_, &stations_uri);
-    httpd_register_uri_handler(server_handle_, &stations_post_uri);
-    httpd_register_uri_handler(server_handle_, &stations_put_uri);
-    httpd_register_uri_handler(server_handle_, &stations_delete_uri);
-    httpd_register_uri_handler(server_handle_, &import_uri);
-    ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/)", port, port);
+    auto register_uri = [this](const httpd_uri_t* uri) {
+        if (httpd_register_uri_handler(server_handle_, uri) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to register URI handler: %s", uri->uri);
+        }
+    };
+    register_uri(&page_uri);
+    register_uri(&stations_uri);
+    register_uri(&stations_post_uri);
+    register_uri(&stations_put_uri);
+    register_uri(&stations_delete_uri);
+    register_uri(&import_uri);
+    register_uri(&status_uri);
+    register_uri(&play_uri);
+    register_uri(&stop_uri);
+    ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
+             __DATE__, __TIME__);
     return true;
 }
 
@@ -375,6 +448,27 @@ esp_err_t RadioWebServer::ImportHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     return instance_->HandleImport(req);
+}
+
+esp_err_t RadioWebServer::StatusHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->radio_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleStatus(req);
+}
+
+esp_err_t RadioWebServer::PlayHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->radio_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandlePlay(req);
+}
+
+esp_err_t RadioWebServer::StopHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->radio_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleStop(req);
 }
 
 esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
@@ -542,4 +636,40 @@ esp_err_t RadioWebServer::HandleImport(httpd_req_t* req) {
     cJSON_AddNumberToObject(result.get(), "imported", static_cast<double>(imported.size()));
     CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
     return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t RadioWebServer::HandleStatus(httpd_req_t* req) {
+    bool playing = radio_->IsPlaying() || radio_->IsDownloading();
+    CJsonUniquePtr root(cJSON_CreateObject());
+    if (root == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    cJSON_AddBoolToObject(root.get(), "playing", playing);
+    cJSON_AddStringToObject(root.get(), "currentKey", playing ? radio_->GetCurrentStationKey().c_str() : "");
+    cJSON_AddStringToObject(root.get(), "currentStation",
+                            playing ? radio_->GetCurrentStation().c_str() : "");
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t RadioWebServer::HandlePlay(httpd_req_t* req) {
+    char key[64] = {0};
+    const char* query = strchr(req->uri, '?');
+    const char* query_str = (query != nullptr) ? query + 1 : "";
+    if (httpd_query_key_value(query_str, "key", key, sizeof(key)) != ESP_OK || key[0] == '\0') {
+        return SendJson(req, 400, ErrorJson("Missing key query parameter"));
+    }
+    ESP_LOGI(TAG, "Play station request: key='%s'", key);
+    if (!radio_->PlayStationByKey(key)) {
+        return SendJson(req, 404, ErrorJson("Station not found or failed to start playback"));
+    }
+    return SendJson(req, 200, "{\"ok\":true}");
+}
+
+esp_err_t RadioWebServer::HandleStop(httpd_req_t* req) {
+    ESP_LOGI(TAG, "Stop playback request");
+    if (!radio_->Stop()) {
+        return SendJson(req, 500, ErrorJson("Failed to stop playback"));
+    }
+    return SendJson(req, 200, "{\"ok\":true}");
 }

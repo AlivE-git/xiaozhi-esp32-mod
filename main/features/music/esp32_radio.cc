@@ -420,6 +420,7 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
     std::string lower_input = ToLowerAscii(station_name);
 
     RadioStation found;
+    std::string found_key;
     bool found_station = false;
     {
         std::lock_guard<std::mutex> lock(stations_mutex_);
@@ -432,6 +433,7 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
                     ESP_LOGI(TAG, "Found station by alias '%s' -> %s", alias.c_str(),
                              station.second.name.c_str());
                     found = station.second;
+                    found_key = station.first;
                     found_station = true;
                     break;
                 }
@@ -450,6 +452,7 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
                     ESP_LOGI(TAG, "Found station by display name: '%s' -> %s", station_name.c_str(),
                              station.second.name.c_str());
                     found = station.second;
+                    found_key = station.first;
                     found_station = true;
                     break;
                 }
@@ -463,6 +466,7 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
                     ESP_LOGI(TAG, "Found station by key (case insensitive): '%s' -> %s",
                              station_name.c_str(), station.second.name.c_str());
                     found = station.second;
+                    found_key = station.first;
                     found_station = true;
                     break;
                 }
@@ -476,7 +480,34 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
     }
 
     current_station_volume_ = found.volume;
-    return PlayUrl(found.url, found.name);
+    bool started = PlayUrl(found.url, found.name);
+    if (started) {
+        current_station_key_ = found_key;
+    }
+    return started;
+}
+
+bool Esp32Radio::PlayStationByKey(const std::string& key) {
+    RadioStation found;
+    bool found_station = false;
+    {
+        std::lock_guard<std::mutex> lock(stations_mutex_);
+        auto it = radio_stations_.find(key);
+        if (it != radio_stations_.end()) {
+            found = it->second;
+            found_station = true;
+        }
+    }
+    if (!found_station) {
+        ESP_LOGE(TAG, "Radio station not found by key: %s", key.c_str());
+        return false;
+    }
+    current_station_volume_ = found.volume;
+    bool started = PlayUrl(found.url, found.name);
+    if (started) {
+        current_station_key_ = key;
+    }
+    return started;
 }
 
 bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& station_name) {
@@ -498,6 +529,7 @@ bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& statio
 
     // Set current station information
     current_station_url_ = radio_url;
+    current_station_key_.clear();  // Direct URL playback has no station key
     current_station_name_ = station_name.empty() ? "Custom Radio" : station_name;
 
     // If current_station_volume_ wasn't set by PlayStation(), use default volume
@@ -579,6 +611,8 @@ void Esp32Radio::StopLocked() {
         play_thread_.join();
         ESP_LOGI(TAG, "Play thread joined in Stop");
     }
+
+    current_station_key_.clear();
 
     // Drop the "now playing" line so a stopped station is not left on screen.
     // RemoveChatMessage() only clears the line if it still shows this station.
