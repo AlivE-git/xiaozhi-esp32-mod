@@ -10,6 +10,7 @@
 #include <mutex>
 #include <deque>
 #include <memory>
+#include <atomic>
 #include <functional>
 #include <cstdint>
 #include <vector>
@@ -79,6 +80,13 @@ public:
      * Returns true if transition was successful
      */
     bool SetDeviceState(DeviceState state);
+
+    /**
+     * Request a one-shot transition to idle after the current TTS reply ends.
+     * The next TTS "stop" consumes the flag instead of reopening the mic in
+     * listening mode. Thread-safe; used e.g. after a timer is set.
+     */
+    void RequestIdleAfterSpeaking();
 
     /**
      * Schedule a callback to be executed in the main task
@@ -162,6 +170,7 @@ private:
     bool assets_version_checked_ = false;
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
+    std::atomic<bool> idle_after_speaking_ = false;  // One-shot: go idle instead of listening on next TTS stop
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
 

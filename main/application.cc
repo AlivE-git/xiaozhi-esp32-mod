@@ -72,6 +72,8 @@ Application::~Application() {
 
 bool Application::SetDeviceState(DeviceState state) { return state_machine_.TransitionTo(state); }
 
+void Application::RequestIdleAfterSpeaking() { idle_after_speaking_.store(true); }
+
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
@@ -677,10 +679,15 @@ void Application::InitializeProtocol() {
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
                     if (GetDeviceState() == kDeviceStateSpeaking) {
-                        // If the radio is playing, return to standby (idle) so
-                        // the radio keeps playing and the device listens for the
-                        // wake word instead of staying in the chat session.
-                        if (radio_ != nullptr && radio_->IsPlaying()) {
+                        // One-shot idle request (set e.g. by self.timer.set): after
+                        // the timer confirmation the device goes to standby
+                        // instead of staying in listening mode.
+                        if (idle_after_speaking_.exchange(false)) {
+                            SetDeviceState(kDeviceStateIdle);
+                        } else if (radio_ != nullptr && radio_->IsPlaying()) {
+                            // If the radio is playing, return to standby (idle) so
+                            // the radio keeps playing and the device listens for the
+                            // wake word instead of staying in the chat session.
                             SetDeviceState(kDeviceStateIdle);
                         } else if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);

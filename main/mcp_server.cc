@@ -176,6 +176,10 @@ void McpServer::AddCommonTools() {
                     if (!timer->Start(seconds)) {
                         return std::string("Ошибка: не удалось установить таймер");
                     }
+                    // After the confirmation speech, go to standby instead of
+                    // reopening the mic in listening mode. The flag is consumed
+                    // by the TTS "stop" handler in Application.
+                    Application::GetInstance().RequestIdleAfterSpeaking();
                     return "Таймер установлен на " + timer->FormatRemaining();
                 });
         AddTool("self.timer.stop", "Stop and cancel the running countdown timer.", PropertyList(),
