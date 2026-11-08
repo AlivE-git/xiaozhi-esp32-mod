@@ -42,6 +42,12 @@ std::string Board::GenerateUuid() {
     return std::string(uuid_str);
 }
 
+void Board::WakeUp() {
+    if (auto* backlight = GetBacklight()) {
+        backlight->RestoreBrightness();
+    }
+}
+
 bool Board::GetBatteryLevel(int& level, bool& charging, bool& discharging) { return false; }
 
 bool Board::GetTemperature(float& esp32temp) { return false; }

@@ -1,5 +1,6 @@
 #include "radio_web_server.h"
 
+#include "board.h"
 #include "cjson_utils.h"
 #include "esp32_radio.h"
 
@@ -663,6 +664,9 @@ esp_err_t RadioWebServer::HandlePlay(httpd_req_t* req) {
     if (!radio_->PlayStationByKey(key)) {
         return SendJson(req, 404, ErrorJson("Station not found or failed to start playback"));
     }
+    // Starting playback from the Web UI counts as user activity: wake the
+    // display if it went to sleep.
+    Board::GetInstance().WakeUp();
     return SendJson(req, 200, "{\"ok\":true}");
 }
 

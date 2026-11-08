@@ -68,6 +68,12 @@ public:
     virtual std::string GetBoardType() = 0;
     virtual std::string GetUuid() { return uuid_; }
     virtual Backlight* GetBacklight() { return nullptr; }
+    // Wake the display from sleep / exit power-save sleep mode, e.g. when
+    // playback is started remotely. The default implementation restores the
+    // backlight brightness. Boards with a PowerSaveTimer/SleepTimer should
+    // override this to call the timer's WakeUp() so its idle countdown,
+    // shutdown request and CPU frequency are reset as well.
+    virtual void WakeUp();
     virtual Led* GetLed();
     virtual AudioCodec* GetAudioCodec() = 0;
     virtual bool GetTemperature(float& esp32temp);

@@ -404,6 +404,12 @@ public:
         return display_;
     }
 
+    // There is no backlight here: the OLED is blanked by the PowerSaveTimer sleep callback,
+    // so waking the screen means resetting that timer (not the base-class backlight path).
+    virtual void WakeUp() override {
+        WakeScreen();
+    }
+
     // Application raises PERFORMANCE when a conversation, notification or upgrade starts,
     // which is exactly when the screen has to be back on before anything is shown.
     virtual void SetPowerSaveLevel(PowerSaveLevel level) override {

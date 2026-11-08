@@ -17,6 +17,7 @@ class Esp32Radio;
 //        POST   /api/import   - replace the whole list from an exported JSON file
 //        GET    /api/status   - {playing, currentKey, currentStation}
 //        POST   /api/play?key=KEY - start playing a station by key
+//                                 (also wakes the display from sleep)
 //        POST   /api/stop     - stop playback
 class RadioWebServer {
 public:
