@@ -450,7 +450,13 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
-    config.max_open_sockets = 7;
+    // The whole device has only CONFIG_LWIP_MAX_SOCKETS (10) sockets, and the
+    // MQTT/UDP audio channel, the radio stream and OTA all need some. Reserving
+    // 7 for the Web UI left nothing for voice input, which then failed with
+    // "Failed to create socket" (ENFILE) after browsing the UI. Keep a few
+    // sessions and recycle the oldest instead of refusing new connections.
+    config.max_open_sockets = 3;
+    config.lru_purge_enable = true;
     config.ctrl_port = 32770;
     // We register 12 handlers; the default limit (8) is not enough.
     config.max_uri_handlers = 16;
