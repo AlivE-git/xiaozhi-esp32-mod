@@ -15,6 +15,7 @@ AudioCodec::~AudioCodec() {
 }
 
 void AudioCodec::OutputData(std::vector<int16_t>& data) {
+    std::lock_guard<std::mutex> lock(output_mutex_);
     Write(data.data(), data.size());
 }
 

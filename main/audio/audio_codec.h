@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <functional>
+#include <mutex>
 
 #include "board.h"
 
@@ -52,6 +53,12 @@ public:
 protected:
     i2s_chan_handle_t tx_handle_ = nullptr;
     i2s_chan_handle_t rx_handle_ = nullptr;
+
+    // The radio feeds the codec from its own thread while the audio service
+    // feeds it from the output task. Concurrent writes interleave two PCM
+    // streams inside one I2S transfer, which is heard as loud crackling, so
+    // whole writes are serialized here as a last line of defence.
+    std::mutex output_mutex_;
 
     bool duplex_ = false;
     bool input_reference_ = false;

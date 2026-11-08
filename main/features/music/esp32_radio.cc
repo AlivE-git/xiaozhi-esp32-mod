@@ -1014,6 +1014,8 @@ void Esp32Radio::PlayRadioStream() {
         ShowCurrentStation();
     }
 
+    auto& audio_service = app.GetAudioService();
+
     while (is_playing_) {
         // Pause radio playback while the device is busy talking or connecting.
         // Radio only plays in the idle state so it never interferes with the mic.
@@ -1022,6 +1024,16 @@ void Esp32Radio::PlayRadioStream() {
             ESP_LOGD(TAG, "Device state is %d, pausing radio playback", state);
             last_app_state = state;
             vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        // Pause radio playback while the audio service plays another source
+        // (timer alarm, notification sound, alert). Radio writes PCM to the
+        // codec directly, and so does the audio service output task, so letting
+        // both run interleaves two streams and is heard as loud crackling.
+        if (!audio_service.IsPlaybackIdle()) {
+            ESP_LOGD(TAG, "Audio service is playing another source, pausing radio");
+            vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
 
@@ -1249,8 +1261,14 @@ void Esp32Radio::PlayRadioStream() {
                 }
 
                 auto rt_state = app.GetDeviceState();
-                if (!out_pcm->empty() && rt_state == kDeviceStateIdle) {
-                    app.GetAudioService().NotifyExternalOutputActivity();
+                if (!out_pcm->empty() && rt_state == kDeviceStateIdle &&
+                    audio_service.IsPlaybackIdle()) {
+                    if (!codec->output_enabled()) {
+                        // The power watchdog can switch the speaker off while the
+                        // radio is paused, so bring it back before resuming.
+                        codec->EnableOutput(true);
+                    }
+                    audio_service.NotifyExternalOutputActivity();
                     codec->OutputData(*out_pcm);
                 }
 
