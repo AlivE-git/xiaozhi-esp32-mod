@@ -6,6 +6,7 @@
 #include "cjson_utils.h"
 #include "display.h"
 #include "features/music/esp32_radio.h"
+#include "features/timer/countdown_timer.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
 #include "settings.h"
@@ -64,6 +65,8 @@ Application::~Application() {
         delete radio_;
         radio_ = nullptr;
     }
+    delete timer_;
+    timer_ = nullptr;
     vEventGroupDelete(event_group_);
 }
 
@@ -117,6 +120,9 @@ void Application::Initialize() {
     if (radio_ != nullptr) {
         radio_->Initialize();
     }
+
+    // Create the countdown timer (idle until a timer is requested)
+    timer_ = new CountdownTimer();
 
     // Add MCP common tools (only once during initialization)
     auto& mcp_server = McpServer::GetInstance();
@@ -297,6 +303,11 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+            if (timer_ != nullptr) {
+                // The countdown owns the status line while it runs and handles
+                // its own expiry sound, so it is advanced after the clock update.
+                timer_->Tick();
+            }
 
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {

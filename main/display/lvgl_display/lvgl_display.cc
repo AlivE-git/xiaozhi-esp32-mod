@@ -10,6 +10,7 @@
 #include "audio_codec.h"
 #include "board.h"
 #include "dynamic_glyph_cache.h"
+#include "features/timer/countdown_timer.h"
 #include "jpg/image_to_jpeg.h"
 #include "lvgl_display.h"
 #include "lvgl_theme.h"
@@ -215,7 +216,13 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
 
     // Update time — show HH:MM when idle; refresh immediately on state
     // transitions (update_all=true) and on every minute change thereafter.
-    if (app.GetDeviceState() == kDeviceStateIdle) {
+    // A running countdown timer owns the status line (it refreshes every second),
+    // so the clock must not replace it; keeping the marker reset makes the clock
+    // come back as soon as the timer is stopped or expires.
+    auto timer = Application::GetInstance().GetTimer();
+    if (timer != nullptr && timer->IsRunning()) {
+        last_displayed_clock_min_ = -1;
+    } else if (app.GetDeviceState() == kDeviceStateIdle) {
         time_t now = time(NULL);
         struct tm* tm_now = localtime(&now);
         if (tm_now->tm_year >= 2025 - 1900) {

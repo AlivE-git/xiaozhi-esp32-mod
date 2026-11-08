@@ -22,6 +22,7 @@
 #include "notify/notify_player.h"
 
 class Esp32Radio;
+class CountdownTimer;
 
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
@@ -121,7 +122,8 @@ public:
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
     Esp32Radio* GetRadio() { return radio_; }
-	
+    CountdownTimer* GetTimer() { return timer_; }
+
     /**
      * Reset protocol resources (thread-safe)
      * Can be called from any task to release resources allocated after network connected
@@ -149,7 +151,8 @@ private:
     uint32_t notification_playback_id_ = 0;
     std::unique_ptr<Ota> ota_;
 	Esp32Radio* radio_ = nullptr;
-	
+	CountdownTimer* timer_ = nullptr;
+
     std::function<void(const std::string&)> mcp_broadcast_callback_;
 
     bool has_server_time_ = false;

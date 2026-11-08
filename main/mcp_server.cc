@@ -16,6 +16,7 @@
 #include "board.h"
 #include "display.h"
 #include "features/music/esp32_radio.h"
+#include "features/timer/countdown_timer.h"
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
 #include "settings.h"
@@ -158,6 +159,41 @@ void McpServer::AddCommonTools() {
                         response += "- " + s + "\n";
                     }
                     return response;
+                });
+    }
+
+    // Countdown timer control
+    auto timer = Application::GetInstance().GetTimer();
+    if (timer) {
+        AddTool("self.timer.set",
+                "Set a countdown timer. Convert the requested time into seconds: 1 minute = 60, "
+                "5 minutes = 300, 1 hour = 3600. The remaining time is shown on the device "
+                "display and the device rings when the timer ends. Use self.timer.stop to cancel "
+                "it and self.timer.get_remaining to check how much time is left.",
+                PropertyList({Property("duration_seconds", kPropertyTypeInteger, 1, 86400)}),
+                [timer](const PropertyList& properties) -> ReturnValue {
+                    int seconds = properties["duration_seconds"].value<int>();
+                    if (!timer->Start(seconds)) {
+                        return std::string("Ошибка: не удалось установить таймер");
+                    }
+                    return "Таймер установлен на " + timer->FormatRemaining();
+                });
+        AddTool("self.timer.stop", "Stop and cancel the running countdown timer.", PropertyList(),
+                [timer](const PropertyList& properties) -> ReturnValue {
+                    if (timer->Stop()) {
+                        return std::string("Таймер остановлен");
+                    }
+                    return std::string("Активного таймера нет");
+                });
+        AddTool("self.timer.get_remaining",
+                "Get how much time is left on the countdown timer. Returns the remaining time "
+                "as MM:SS plus the number of seconds.",
+                PropertyList(), [timer](const PropertyList& properties) -> ReturnValue {
+                    if (!timer->IsRunning()) {
+                        return std::string("Активного таймера нет");
+                    }
+                    return "Осталось " + timer->FormatRemaining() + " (" +
+                           std::to_string(timer->GetRemainingSeconds()) + " секунд)";
                 });
     }
 
