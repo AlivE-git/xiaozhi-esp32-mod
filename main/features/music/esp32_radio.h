@@ -46,7 +46,6 @@ class Esp32Radio : public Radio {
 private:
     std::string current_station_name_;
     std::string current_station_url_;
-    bool station_name_displayed_;
     float current_station_volume_;  // Current station's volume amplification factor
 
     // Predefined radio station list
@@ -88,6 +87,11 @@ public:
     ~Esp32Radio();
 
     void Initialize();
+
+    // Show the current station name on the display while the radio is playing.
+    // On the 128x32 OLED layout the name goes to the subtitle line under the
+    // status bar, which is the only text line left free next to the clock.
+    void ShowCurrentStation();
 
     // Play a specific station
     virtual bool PlayStation(const std::string& station_name) override;

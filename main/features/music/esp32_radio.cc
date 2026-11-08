@@ -19,7 +19,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <sstream>
 #include <thread>
 
 #define TAG "Esp32Radio"
@@ -34,7 +33,6 @@
 Esp32Radio::Esp32Radio()
     : current_station_name_(),
       current_station_url_(),
-      station_name_displayed_(false),
       current_station_volume_(4.0f),
       radio_stations_(),
       is_playing_(false),
@@ -258,7 +256,6 @@ bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& statio
     // Set current station information
     current_station_url_ = radio_url;
     current_station_name_ = station_name.empty() ? "Custom Radio" : station_name;
-    station_name_displayed_ = false;
 
     // If current_station_volume_ wasn't set by PlayStation(), use default volume
     if (current_station_volume_ <= 0.0f) {
@@ -293,6 +290,16 @@ bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& statio
     return true;
 }
 
+void Esp32Radio::ShowCurrentStation() {
+    auto display = Board::GetInstance().GetDisplay();
+    if (display == nullptr || current_station_name_.empty()) {
+        return;
+    }
+    // Persistent subtitle line: unlike ShowNotification() it is not cleared by a
+    // timer, so the station name stays visible for the whole playback.
+    display->SetChatMessage("assistant", current_station_name_.c_str());
+}
+
 bool Esp32Radio::Stop() {
     std::lock_guard<std::mutex> control_lock(control_mutex_);
 
@@ -312,7 +319,6 @@ void Esp32Radio::StopLocked() {
     // Stop download and playback flags
     is_downloading_ = false;
     is_playing_ = false;
-    station_name_displayed_ = false;
 
     // Notify all waiting threads
     {
@@ -329,6 +335,13 @@ void Esp32Radio::StopLocked() {
     if (play_thread_.joinable()) {
         play_thread_.join();
         ESP_LOGI(TAG, "Play thread joined in Stop");
+    }
+
+    // Drop the "now playing" line so a stopped station is not left on screen.
+    // RemoveChatMessage() only clears the line if it still shows this station.
+    auto display = Board::GetInstance().GetDisplay();
+    if (display != nullptr && !current_station_name_.empty()) {
+        display->RemoveChatMessage("assistant", current_station_name_.c_str());
     }
 
     ESP_LOGI(TAG, "Radio streaming stopped successfully");
@@ -576,24 +589,30 @@ void Esp32Radio::PlayRadioStream() {
 
     auto& app = Application::GetInstance();
 
+    // The OLED has a single subtitle line that conversation text also uses, so the
+    // station name is (re)applied whenever playback starts from the idle state and
+    // whenever the device returns to idle after a conversation.
+    auto last_app_state = app.GetDeviceState();
+    if (last_app_state == kDeviceStateIdle) {
+        ShowCurrentStation();
+    }
+
     while (is_playing_) {
         // Pause radio playback while the device is busy talking or connecting.
         // Radio only plays in the idle state so it never interferes with the mic.
         auto state = app.GetDeviceState();
         if (state != kDeviceStateIdle) {
             ESP_LOGD(TAG, "Device state is %d, pausing radio playback", state);
+            last_app_state = state;
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
-        // Display radio station name
-        if (!station_name_displayed_ && !current_station_name_.empty()) {
-            if (display) {
-                std::string msg = "Радио: " + current_station_name_;
-                display->ShowNotification(msg, 3000);
-                ESP_LOGI(TAG, "Displaying station name: %s", current_station_name_.c_str());
-            }
-            station_name_displayed_ = true;
+        if (last_app_state != kDeviceStateIdle) {
+            ESP_LOGI(TAG, "Resuming radio playback, showing station name: %s",
+                     current_station_name_.c_str());
+            ShowCurrentStation();
+            last_app_state = kDeviceStateIdle;
         }
 
         // If more audio data is needed, read from the buffer
@@ -746,13 +765,6 @@ void Esp32Radio::PlayRadioStream() {
                             ESP_LOGE(TAG, "Failed to create output resampler");
                         }
                     }
-
-                    if (display) {
-                        std::ostringstream oss;
-                        oss << "Радио: " << current_station_name_ << "\n"
-                            << aac_info_.sample_rate << " Гц";
-                        display->ShowNotification(oss.str(), 3000);
-                    }
                 }
 
                 int bits_per_sample =
@@ -864,6 +876,11 @@ void Esp32Radio::PlayRadioStream() {
         }
     } else {
         ESP_LOGI(TAG, "Radio stream playback stopped by user");
+    }
+
+    // The stream is over (finished or stopped), so drop the station name line.
+    if (display) {
+        display->RemoveChatMessage("assistant", current_station_name_.c_str());
     }
 
     // Cleanup decoder
