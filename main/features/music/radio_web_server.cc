@@ -109,22 +109,22 @@ body{background:#f1f4f8}
 </section>
 
 <section class="card mb-4">
+<div class="card-header">📡 Станции</div>
+<div class="table-responsive">
+<table class="table table-hover align-middle mb-0">
+<thead class="table-dark"><tr><th>Ключ</th><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+</div>
+</section>
+
+<section class="card">
  <div class="card-header">⇅ Импорт / Экспорт</div>
  <div class="card-body d-flex flex-wrap gap-2 align-items-center">
   <button class="btn btn-outline-success" type="button" id="exportBtn">⬇ Экспорт станций (JSON)</button>
   <button class="btn btn-outline-warning" type="button" id="importBtn">⬆ Импорт и замена всех станций</button>
   <input type="file" id="importFile" accept=".json,application/json" class="d-none">
   <span class="text-muted small">Импорт полностью заменяет текущий список станций.</span>
- </div>
-</section>
-
-<section class="card">
- <div class="card-header">📡 Станции</div>
- <div class="table-responsive">
-  <table class="table table-hover align-middle mb-0">
-   <thead class="table-dark"><tr><th>Ключ</th><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
-   <tbody id="rows"></tbody>
-  </table>
  </div>
 </section>
 </div>
@@ -220,27 +220,6 @@ body{background:#f1f4f8}
   <button class="btn btn-outline-warning" type="button" id="feedImportBtn">⬆ Импорт и замена всех лент</button>
   <input type="file" id="feedImportFile" accept=".json,application/json" class="d-none">
   <span class="text-muted small">Импорт полностью заменяет текущий список лент.</span>
- </div>
-</section>
-
-<section class="card">
- <div class="card-header">📰 Последние новости</div>
- <div class="card-body">
-  <form id="newsForm" class="row g-2 align-items-end mb-3">
-   <div class="col-auto">
-    <label class="form-label small" for="newsFeed">Лента</label>
-    <select id="newsFeed" class="form-select"></select>
-   </div>
-   <div class="col-auto">
-    <label class="form-label small" for="newsCount">Заголовков</label>
-    <input id="newsCount" class="form-control" type="number" min="1" max="20" step="1" value="5" style="width:6rem">
-   </div>
-   <div class="col-auto">
-    <button class="btn btn-primary" type="submit">⬇ Загрузить</button>
-   </div>
-  </form>
-  <div id="newsStatus" class="small text-muted mb-2 d-none"></div>
-  <ol id="newsList" class="mb-0"></ol>
  </div>
 </section>
 </div>
@@ -406,20 +385,13 @@ function renderFeedRows(){
       msg(rr.ok?'Лента удалена':'Не удалось удалить ленту',rr.ok);loadRss();};
     td.append(eb,db);tr.appendChild(td);tb.appendChild(tr);});
 }
-function renderFeedSelect(){
-  const sel=document.getElementById('newsFeed');const current=sel.value;
-  sel.innerHTML='<option value="">Все ленты</option>'
-    +feedsCache.map(f=>'<option value="'+esc(f.key)+'">'+esc(f.name)
-      +(f.category?' · '+esc(f.category):'')+'</option>').join('');
-  if(feedsCache.some(f=>f.key===current))sel.value=current;
-}
 async function loadRss(){
   try{
     const r=await fetch('/api/rss');
     if(!r.ok)return;
     const data=await r.json();
     feedsCache=data.feeds||[];
-    renderFeedRows();renderFeedSelect();
+    renderFeedRows();
   }catch(e){/* device unreachable; keep last state */}
 }
 function startFeedEdit(f){
@@ -486,42 +458,6 @@ document.getElementById('feedImportFile').onchange=async e=>{
   if(r.ok){msg('Импортировано лент: '+(res.imported||data.feeds.length));resetFeedForm();loadRss();}
   else{msg('Импорт не удался: '+(res.error||r.status),false);}
   e.target.value='';
-};
-function renderNewsStatus(items,errors,feed){
-  const status=document.getElementById('newsStatus');
-  status.classList.remove('d-none');
-  if(items.length===0){
-    status.textContent=errors.length?('Не удалось прочитать: '+errors.join('; ')):'Новостей не найдено.';
-    return;}
-  status.textContent=(feed?'Заголовки ленты':'Заголовки всех лент')+' ('+items.length+')'
-    +(errors.length?'; ошибки: '+errors.join('; '):'');
-}
-async function loadLatest(feed,count){
-  const list=document.getElementById('newsList');
-  const status=document.getElementById('newsStatus');
-  list.innerHTML='';
-  status.classList.remove('d-none');status.textContent='Загружаю ленты…';
-  try{
-    const r=await fetch('/api/rss?latest=1&feed='+encodeURIComponent(feed)+'&count='+count);
-    const data=await r.json();
-    const items=data.items||[];const errors=data.errors||[];
-    renderNewsStatus(items,errors,feed);
-    items.forEach(it=>{
-      const li=document.createElement('li');li.className='mb-2';
-      const title=it.link?'<a href="'+esc(it.link)+'" target="_blank" rel="noopener">'+esc(it.title)+'</a>':esc(it.title);
-      const meta='<div class="small text-muted">'+esc(it.feed)+(it.published?' · '+esc(it.published):'')+'</div>';
-      li.innerHTML='<div>'+title+'</div>'+meta;
-      list.appendChild(li);
-    });
-  }catch(err){
-    status.textContent='Устройство недоступно';
-  }
-}
-document.getElementById('newsForm').onsubmit=e=>{
-  e.preventDefault();
-  const feed=document.getElementById('newsFeed').value;
-  const count=Math.max(1,Math.min(20,parseInt(document.getElementById('newsCount').value,10)||5));
-  loadLatest(feed,count);
 };
 function showTab(name){
   document.querySelectorAll('#mainTabs .nav-link').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
@@ -1224,62 +1160,7 @@ std::string RadioWebServer::FeedsJson() const {
 }
 
 esp_err_t RadioWebServer::HandleRss(httpd_req_t* req) {
-    const char* query = strchr(req->uri, '?');
-    const char* query_str = (query != nullptr) ? query + 1 : "";
-
-    char latest[8] = {0};
-    if (httpd_query_key_value(query_str, "latest", latest, sizeof(latest)) != ESP_OK ||
-        strcmp(latest, "1") != 0) {
-        return SendJson(req, 200, FeedsJson());
-    }
-
-    // "feed" is a feed key (or empty for all feeds); "count" is 1..20.
-    char feed_key[64] = {0};
-    char count_text[8] = {0};
-    httpd_query_key_value(query_str, "feed", feed_key, sizeof(feed_key));
-    int count = 5;
-    if (httpd_query_key_value(query_str, "count", count_text, sizeof(count_text)) == ESP_OK) {
-        char* end = nullptr;
-        long parsed = strtol(count_text, &end, 10);
-        if (end != nullptr && *end == '\0' && parsed > 0) {
-            count = static_cast<int>(parsed > 20 ? 20 : parsed);
-        }
-    }
-    ESP_LOGI(TAG, "RSS latest request: feed='%s', count=%d", feed_key, count);
-
-    std::vector<std::pair<std::string, RssItem>> items;
-    std::vector<std::string> errors;
-    rss_->FetchLatest(feed_key, count, items, errors);
-
-    CJsonUniquePtr root(cJSON_CreateObject());
-    CJsonUniquePtr items_json(cJSON_CreateArray());
-    if (root == nullptr || items_json == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
-    }
-    for (const auto& [feed_name, item] : items) {
-        CJsonUniquePtr entry(cJSON_CreateObject());
-        if (entry == nullptr) {
-            continue;
-        }
-        cJSON_AddStringToObject(entry.get(), "feed", feed_name.c_str());
-        cJSON_AddStringToObject(entry.get(), "title", item.title.c_str());
-        cJSON_AddStringToObject(entry.get(), "link", item.link.c_str());
-        cJSON_AddStringToObject(entry.get(), "published", item.published.c_str());
-        cJSON_AddItemToArray(items_json.get(), entry.release());
-    }
-    cJSON_AddItemToObject(root.get(), "items", items_json.release());
-
-    CJsonUniquePtr errors_json(cJSON_CreateArray());
-    if (errors_json == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
-    }
-    for (const auto& error : errors) {
-        cJSON_AddItemToArray(errors_json.get(), cJSON_CreateString(error.c_str()));
-    }
-    cJSON_AddItemToObject(root.get(), "errors", errors_json.release());
-
-    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
-    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+    return SendJson(req, 200, FeedsJson());
 }
 
 esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {

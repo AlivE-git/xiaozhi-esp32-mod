@@ -25,8 +25,6 @@ class RssReader;
 //        POST   /api/timer?seconds=N - start (or replace) the countdown timer
 //        POST   /api/timer/stop - cancel the running countdown timer
 //        GET    /api/rss      - list RSS feeds as JSON (also used for export)
-//        GET    /api/rss?latest=1&feed=KEY&count=N - newest headlines
-//                               (feed empty = all feeds)
 //        POST   /api/rss      - add a feed (optional key, name, url, category,
 //                               aliases); a {"feeds":[...]} body replaces the
 //                               whole list (import)
