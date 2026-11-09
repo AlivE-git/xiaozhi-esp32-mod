@@ -4,6 +4,7 @@
 #include "board.h"
 #include "cjson_utils.h"
 #include "esp32_radio.h"
+#include "features/joke/joke_reader.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
 
@@ -61,6 +62,7 @@ body{background:#f1f4f8}
 <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
  <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-tab="radio">📻 Радио</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="joke">😄 Анекдоты</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
 </ul>
 <div class="tab-content">
@@ -220,6 +222,20 @@ body{background:#f1f4f8}
   <button class="btn btn-outline-warning" type="button" id="feedImportBtn">⬆ Импорт и замена всех лент</button>
   <input type="file" id="feedImportFile" accept=".json,application/json" class="d-none">
   <span class="text-muted small">Импорт полностью заменяет текущий список лент.</span>
+ </div>
+</section>
+</div>
+
+<div class="tab-pane" id="pane-joke" role="tabpanel">
+<section class="card mb-4">
+ <div class="card-header">😄 Случайный анекдот</div>
+ <div class="card-body">
+  <div class="d-flex flex-wrap gap-2 mb-3">
+   <button class="btn btn-primary" type="button" id="jokeBtn">🎲 Получить анекдот</button>
+   <button class="btn btn-outline-secondary" type="button" id="jokeCopyBtn">📋 Копировать</button>
+  </div>
+  <div id="jokeText" class="border rounded p-3 bg-light" style="white-space:pre-wrap">Нажмите «Получить анекдот», чтобы получить случайный анекдот.</div>
+  <div class="text-muted small mt-3">Случайные анекдоты с rzhunemogu.ru (категория «Анекдоты»). Голосом можно попросить «расскажи анекдот».</div>
  </div>
 </section>
 </div>
@@ -507,6 +523,41 @@ document.getElementById('timerForm').onsubmit=e=>{
   if(total<1||total>86400){msg('Укажите длительность от 1 секунды до 24 часов',false);return;}
   setTimer(total);
 };
+async function loadJoke(){
+  const btn=document.getElementById('jokeBtn');
+  const box=document.getElementById('jokeText');
+  btn.disabled=true;
+  box.textContent='Загружаю анекдот…';
+  try{
+    const r=await fetch('/api/joke');
+    const data=await r.json().catch(()=>({}));
+    box.textContent=(r.ok&&data.joke)?data.joke:'Не удалось получить анекдот: '+(data.error||('HTTP '+r.status));
+  }catch(e){
+    box.textContent='Не удалось получить анекдот: устройство недоступно';
+  }finally{
+    btn.disabled=false;
+  }
+}
+async function copyJoke(){
+  const text=document.getElementById('jokeText').textContent;
+  try{
+    if(navigator.clipboard&&window.isSecureContext){
+      await navigator.clipboard.writeText(text);
+    }else{
+      const ta=document.createElement('textarea');
+      ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();
+      const ok=document.execCommand('copy');
+      document.body.removeChild(ta);
+      if(!ok)throw new Error('copy failed');
+    }
+    msg('Анекдот скопирован');
+  }catch(e){
+    msg('Не удалось скопировать анекдот',false);
+  }
+}
+document.getElementById('jokeBtn').onclick=loadJoke;
+document.getElementById('jokeCopyBtn').onclick=copyJoke;
 load();
 loadStatus();
 setInterval(loadStatus,3000);
@@ -647,9 +698,17 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     config.max_open_sockets = 3;
     config.lru_purge_enable = true;
     config.ctrl_port = 32770;
-    // We register 16 handlers; the default limit (8) is not enough and 16 is
-    // the maximum we can ask for.
-    config.max_uri_handlers = 16;
+    // The joke tab fetches an HTTPS API from this task, and the TLS handshake
+    // does not fit in the default 4 KB stack.
+    config.stack_size = 12 * 1024;
+    // The TLS handshake is CPU-heavy. httpd defaults to priority 5, above the
+    // AFE fetch task (priority 3), so a request starved the audio pipeline: the
+    // codec task kept feeding while nothing drained the AFE ring buffer
+    // ("Ringbuffer of AFE(FEED) is full"). Keep the Web UI below the audio
+    // tasks; handlers still get CPU because they block on the network.
+    config.task_priority = 2;
+    // We register 17 handlers; the default limit (8) is not enough.
+    config.max_uri_handlers = 17;
 
     httpd_uri_t page_uri = {
         .uri = "/",
@@ -727,6 +786,12 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     httpd_uri_t rss_delete_uri = rss_uri;
     rss_delete_uri.method = HTTP_DELETE;
     rss_delete_uri.handler = RssDeleteHandler;
+    httpd_uri_t joke_uri = {
+        .uri = "/api/joke",
+        .method = HTTP_GET,
+        .handler = JokeHandler,
+        .user_ctx = nullptr,
+    };
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
@@ -754,6 +819,7 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     register_uri(&rss_post_uri);
     register_uri(&rss_put_uri);
     register_uri(&rss_delete_uri);
+    register_uri(&joke_uri);
     ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);
     return true;
@@ -851,6 +917,13 @@ esp_err_t RadioWebServer::RssDeleteHandler(httpd_req_t* req) {
     return instance_->HandleRssDelete(req);
 }
 
+esp_err_t RadioWebServer::JokeHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleJoke(req);
+}
+
 esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     return httpd_resp_send(req, kPageHtml, HTTPD_RESP_USE_STRLEN);
@@ -863,6 +936,7 @@ esp_err_t RadioWebServer::SendJson(httpd_req_t* req, int status, const std::stri
                                          : status == 400 ? "400 Bad Request"
                                          : status == 404 ? "404 Not Found"
                                          : status == 409 ? "409 Conflict"
+                                         : status == 502 ? "502 Bad Gateway"
                                          : status == 500 ? "500 Internal Server Error"
                                                          : "500 Internal Server Error");
     return httpd_resp_send(req, body.c_str(), body.size());
@@ -1161,6 +1235,22 @@ std::string RadioWebServer::FeedsJson() const {
 
 esp_err_t RadioWebServer::HandleRss(httpd_req_t* req) {
     return SendJson(req, 200, FeedsJson());
+}
+
+esp_err_t RadioWebServer::HandleJoke(httpd_req_t* req) {
+    std::string joke;
+    std::string error;
+    if (!JokeReader::Fetch(joke, error)) {
+        ESP_LOGW(TAG, "Failed to fetch a joke: %s", error.c_str());
+        return SendJson(req, 502, ErrorJson(error));
+    }
+    CJsonUniquePtr root(cJSON_CreateObject());
+    if (root == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    cJSON_AddStringToObject(root.get(), "joke", joke.c_str());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
 }
 
 esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {

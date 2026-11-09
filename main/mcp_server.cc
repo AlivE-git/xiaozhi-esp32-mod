@@ -15,6 +15,7 @@
 #include "application.h"
 #include "board.h"
 #include "display.h"
+#include "features/joke/joke_reader.h"
 #include "features/music/esp32_radio.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
@@ -26,7 +27,7 @@
 
 namespace {
 
-// Tools that only report device state. They must not end the voice session,
+// Tools that only read or fetch information. They must not end the voice session,
 // because the user usually asks a follow-up question right after them.
 bool IsReadOnlyTool(const std::string& name) {
     for (const char* read_only : {"self.get_device_status", "self.radio.get_stations",
@@ -252,6 +253,15 @@ void McpServer::AddCommonTools() {
                     return rss->ReadHeadlines(feed, count);
                 });
     }
+
+    // Random joke reader
+    AddTool("self.joke.tell",
+            "Tell a random Russian joke aloud. Fetches a fresh joke from the internet right "
+            "now, so read the returned text to the user as it is. Call it again when the user "
+            "asks for another joke.",
+            PropertyList(), [](const PropertyList& properties) -> ReturnValue {
+                return JokeReader::Tell();
+            });
 
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), std::make_move_iterator(original_tools.begin()),

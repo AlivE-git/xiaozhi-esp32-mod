@@ -10,7 +10,7 @@ class RssReader;
 
 // Small HTTP server with a Web UI for managing the radio station list
 // (add / edit / delete stations and their voice-search aliases), the countdown
-// timer and the RSS news feeds.
+// timer, the RSS news feeds and random jokes.
 // Pages: GET /           - station management page
 //        GET    /api/stations - list stations as JSON (also used for export)
 //        POST   /api/stations - add a station
@@ -30,6 +30,7 @@ class RssReader;
 //                               whole list (import)
 //        PUT    /api/rss      - edit a feed by key
 //        DELETE /api/rss?key=KEY - delete a feed
+//        GET    /api/joke     - {joke} with a random joke from rzhunemogu.ru
 class RadioWebServer {
 public:
     RadioWebServer();
@@ -57,6 +58,7 @@ private:
     static esp_err_t RssHandler(httpd_req_t* req);
     static esp_err_t RssSaveHandler(httpd_req_t* req);
     static esp_err_t RssDeleteHandler(httpd_req_t* req);
+    static esp_err_t JokeHandler(httpd_req_t* req);
 
     esp_err_t HandlePage(httpd_req_t* req);
     esp_err_t HandleStations(httpd_req_t* req);
@@ -70,6 +72,7 @@ private:
     esp_err_t HandleRss(httpd_req_t* req);
     esp_err_t HandleRssSave(httpd_req_t* req);
     esp_err_t HandleRssDelete(httpd_req_t* req);
+    esp_err_t HandleJoke(httpd_req_t* req);
 
     std::string StationsJson() const;
     std::string FeedsJson() const;

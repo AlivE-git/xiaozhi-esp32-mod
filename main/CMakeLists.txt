@@ -18,6 +18,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/text_glyph.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
+            "features/joke/joke_reader.cc"
             "features/music/esp32_radio.cc"
             "features/music/radio_web_server.cc"
             "features/rss/rss_reader.cc"
@@ -47,7 +48,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/music" "features/rss" "features/timer")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/joke" "features/music" "features/rss" "features/timer")
 
 # Add board common files
 list(APPEND SOURCES
