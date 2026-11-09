@@ -535,7 +535,24 @@ std::string RssReader::ResolveFeedKey(const std::string& query) const {
     return ResolveFeedKeyLocked(query);
 }
 
-bool RssReader::AddFeed(const RssFeed& feed_in, std::string* key_out) {
+bool RssReader::IsValidKey(const std::string& key) {
+    if (key.empty() || key.size() > 32) {
+        return false;
+    }
+    for (char c : key) {
+        unsigned char u = static_cast<unsigned char>(c);
+        if (!std::isalnum(u) && c != '_' && c != '-') {
+            return false;
+        }
+        if (u >= 0x80) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool RssReader::AddFeed(const RssFeed& feed_in, const std::string& key_in,
+                        std::string* key_out) {
     RssFeed feed = feed_in;
     NormalizeFeed(&feed);
     if (!IsValidFeed(feed)) {
@@ -545,8 +562,10 @@ bool RssReader::AddFeed(const RssFeed& feed_in, std::string* key_out) {
     if (static_cast<int>(feeds_.size()) >= kMaxFeeds) {
         return false;
     }
-    const std::string key = MakeUniqueKeyLocked(feed.name);
-    if (feeds_.count(key) > 0) {
+    std::string key = Trim(key_in);
+    if (key.empty()) {
+        key = MakeUniqueKeyLocked(feed.name);
+    } else if (!IsValidKey(key) || feeds_.count(key) > 0) {
         return false;
     }
     std::map<std::string, RssFeed> next = feeds_;
@@ -594,23 +613,32 @@ bool RssReader::DeleteFeed(const std::string& key) {
     return true;
 }
 
-bool RssReader::ReplaceFeeds(const std::vector<RssFeed>& feeds, int* imported,
-                             std::string& error) {
+bool RssReader::ReplaceFeeds(const std::vector<std::pair<std::string, RssFeed>>& feeds,
+                             int* imported, std::string& error) {
     error.clear();
     std::map<std::string, RssFeed> next;
-    for (const auto& raw : feeds) {
-        RssFeed feed = raw;
+    for (const auto& [raw_key, raw_feed] : feeds) {
+        RssFeed feed = raw_feed;
         NormalizeFeed(&feed);
         if (!IsValidFeed(feed)) {
             error = "Лента без названия или с неверным адресом: " +
-                    (feed.name.empty() ? raw.url : feed.name);
+                    (feed.name.empty() ? feed.url : feed.name);
             return false;
         }
         if (static_cast<int>(next.size()) >= kMaxFeeds) {
             error = "Слишком много лент: не больше " + std::to_string(kMaxFeeds);
             return false;
         }
-        next[MakeKey(feed.name, next)] = std::move(feed);
+        const std::string key_in = Trim(raw_key);
+        std::string key = key_in.empty() ? MakeKey(feed.name, next) : key_in;
+        if (!IsValidKey(key)) {
+            error = "Неверный ключ ленты: " + key + " (латиница, цифры, _ и -, до 32)";
+            return false;
+        }
+        if (next.count(key) > 0) {
+            key = MakeKey(feed.name, next);
+        }
+        next[key] = std::move(feed);
     }
     if (next.empty()) {
         error = "Список лент пуст";

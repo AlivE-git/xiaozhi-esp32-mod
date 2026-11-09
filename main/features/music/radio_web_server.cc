@@ -174,10 +174,14 @@ body{background:#f1f4f8}
   <form id="feedForm">
    <div class="row g-3">
     <div class="col-md-4">
+     <label class="form-label" for="feedKey">Ключ <span class="text-muted">(уникальный ID, необязательно)</span></label>
+     <input id="feedKey" class="form-control" autocomplete="off" placeholder="LENTA">
+    </div>
+    <div class="col-md-8">
      <label class="form-label" for="feedName">Название <span class="text-muted">(как называть голосом)</span></label>
      <input id="feedName" class="form-control" required autocomplete="off" placeholder="Лента">
     </div>
-    <div class="col-md-8">
+    <div class="col-12">
      <label class="form-label" for="feedUrl">Адрес ленты <span class="text-muted">(RSS 2.0 или Atom, http/https)</span></label>
      <input id="feedUrl" class="form-control" type="url" required autocomplete="off" placeholder="https://lenta.ru/rss/news">
     </div>
@@ -195,7 +199,7 @@ body{background:#f1f4f8}
     </div>
    </div>
   </form>
-  <div class="text-muted small mt-3">Ключ ленты создаётся автоматически из названия. Голосом можно попросить «прочитай 5 последних новостей».</div>
+  <div class="text-muted small mt-3">Ключ — латиница, цифры, «_» и «-», до 32 символов; если оставить пустым, он создастся из названия. Голосом можно попросить «прочитай 5 последних новостей».</div>
  </div>
 </section>
 
@@ -421,6 +425,8 @@ async function loadRss(){
 function startFeedEdit(f){
   editingFeed=f.key;
   document.getElementById('feedFormTitle').textContent='✏️ Редактирование ленты '+f.key;
+  document.getElementById('feedKey').value=f.key;
+  document.getElementById('feedKey').readOnly=true;
   document.getElementById('feedName').value=f.name||'';
   document.getElementById('feedUrl').value=f.url||'';
   document.getElementById('feedCategory').value=f.category||'';
@@ -430,6 +436,7 @@ function startFeedEdit(f){
 }
 function resetFeedForm(){
   editingFeed=null;document.getElementById('feedForm').reset();
+  document.getElementById('feedKey').readOnly=false;
   document.getElementById('feedFormTitle').textContent='➕ Добавить RSS-ленту';
   document.getElementById('feedCancelBtn').classList.add('d-none');
 }
@@ -440,8 +447,10 @@ document.getElementById('feedForm').onsubmit=async e=>{
     url:document.getElementById('feedUrl').value.trim(),
     category:document.getElementById('feedCategory').value.trim(),
     aliases:document.getElementById('feedAliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
-  if(editingFeed)body.key=editingFeed;
-  const r=await fetch('/api/rss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const typedKey=document.getElementById('feedKey').value.trim();
+  if(editingFeed||typedKey)body.key=editingFeed||typedKey;
+  const r=await fetch('/api/rss',{method:editingFeed?'PUT':'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const res=await r.json().catch(()=>({}));
   msg(r.ok?'Лента сохранена':('Ошибка: '+(res.error||r.status)),r.ok);
   if(r.ok){resetFeedForm();loadRss();}
@@ -702,7 +711,8 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     config.max_open_sockets = 3;
     config.lru_purge_enable = true;
     config.ctrl_port = 32770;
-    // We register 15 handlers; the default limit (8) is not enough.
+    // We register 16 handlers; the default limit (8) is not enough and 16 is
+    // the maximum we can ask for.
     config.max_uri_handlers = 16;
 
     httpd_uri_t page_uri = {
@@ -775,6 +785,9 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     httpd_uri_t rss_post_uri = rss_uri;
     rss_post_uri.method = HTTP_POST;
     rss_post_uri.handler = RssSaveHandler;
+    httpd_uri_t rss_put_uri = rss_uri;
+    rss_put_uri.method = HTTP_PUT;
+    rss_put_uri.handler = RssSaveHandler;
     httpd_uri_t rss_delete_uri = rss_uri;
     rss_delete_uri.method = HTTP_DELETE;
     rss_delete_uri.handler = RssDeleteHandler;
@@ -803,6 +816,7 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     register_uri(&timer_stop_uri);
     register_uri(&rss_uri);
     register_uri(&rss_post_uri);
+    register_uri(&rss_put_uri);
     register_uri(&rss_delete_uri);
     ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);
@@ -1290,7 +1304,7 @@ esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {
     // Import replaces the whole list and is sent as {"feeds": [...]}.
     cJSON* feeds = cJSON_GetObjectItem(root.get(), "feeds");
     if (cJSON_IsArray(feeds)) {
-        std::vector<RssFeed> imported_feeds;
+        std::vector<std::pair<std::string, RssFeed>> imported_feeds;
         cJSON* item = nullptr;
         cJSON_ArrayForEach(item, feeds) {
             RssFeed feed;
@@ -1298,7 +1312,9 @@ esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {
                 return SendJson(req, 400,
                                 ErrorJson("Invalid feed entry: name and url are required"));
             }
-            imported_feeds.push_back(std::move(feed));
+            cJSON* item_key = cJSON_GetObjectItem(item, "key");
+            imported_feeds.emplace_back(cJSON_IsString(item_key) ? item_key->valuestring : "",
+                                        std::move(feed));
         }
         ESP_LOGI(TAG, "Import RSS feeds request: %d feeds",
                  static_cast<int>(imported_feeds.size()));
@@ -1328,10 +1344,18 @@ esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {
         return SendJson(req, 400, ErrorJson("Feed needs a name (up to 64 chars) and an http(s) URL"));
     }
 
-    // Editing sends the generated key back; the key itself is never user-edited.
+    // PUT edits an existing feed (key unchanged), POST adds a new one and may
+    // carry an explicit key; without a key one is generated from the name.
     cJSON* key_item = cJSON_GetObjectItem(root.get(), "key");
     std::string key = cJSON_IsString(key_item) ? key_item->valuestring : "";
-    const bool is_edit = !key.empty();
+    const bool is_edit = req->method == HTTP_PUT;
+    if (is_edit && key.empty()) {
+        return SendJson(req, 400, ErrorJson("Missing key for feed update"));
+    }
+    if (!key.empty() && !RssReader::IsValidKey(key)) {
+        return SendJson(req, 400,
+                        ErrorJson("Feed key must be 1-32 chars of A-Z a-z 0-9 _ -"));
+    }
     CJsonUniquePtr result(cJSON_CreateObject());
     if (result == nullptr) {
         return SendJson(req, 500, ErrorJson("Out of memory"));
@@ -1343,10 +1367,16 @@ esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {
             return SendJson(req, 404, ErrorJson("Feed not found or failed to save it"));
         }
     } else {
-        ESP_LOGI(TAG, "Add RSS feed request: url='%s'", feed.url.c_str());
-        if (!rss_->AddFeed(feed, &key)) {
+        ESP_LOGI(TAG, "Add RSS feed request: key='%s' url='%s'", key.c_str(),
+                 feed.url.c_str());
+        if (!key.empty() && rss_->GetFeed(key, nullptr)) {
+            return SendJson(req, 409, ErrorJson("Feed key already exists"));
+        }
+        std::string new_key;
+        if (!rss_->AddFeed(feed, key, &new_key)) {
             return SendJson(req, 409, ErrorJson("Feed list is full or it could not be saved"));
         }
+        key = std::move(new_key);
     }
 
     cJSON_AddBoolToObject(result.get(), "ok", true);

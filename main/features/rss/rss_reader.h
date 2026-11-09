@@ -39,18 +39,24 @@ public:
     std::vector<std::pair<std::string, RssFeed>> GetFeeds() const;
     bool GetFeed(const std::string& key, RssFeed* feed) const;
 
+    // Feed keys are storage identities: 1-32 chars of A-Z a-z 0-9 _ -.
+    static bool IsValidKey(const std::string& key);
+
     // Resolves a user-spoken name ("лента", "РИА") to a feed key; empty if unknown.
     std::string ResolveFeedKey(const std::string& query) const;
 
-    // Adds a feed and returns the generated key, or false when the feed is
-    // invalid, the list is full or NVS cannot be written.
-    bool AddFeed(const RssFeed& feed, std::string* key_out);
+    // Adds a feed and returns its key. An empty `key` is generated from the feed
+    // name; an explicit key must be valid and unused. Returns false when the
+    // feed is invalid, the key is taken, the list is full or NVS cannot be
+    // written.
+    bool AddFeed(const RssFeed& feed, const std::string& key, std::string* key_out);
     bool UpdateFeed(const std::string& key, const RssFeed& feed);
     bool DeleteFeed(const std::string& key);
 
-    // Replaces the whole list (Web UI import). Keys are regenerated from the
-    // feed names, like AddFeed does.
-    bool ReplaceFeeds(const std::vector<RssFeed>& feeds, int* imported, std::string& error);
+    // Replaces the whole list (Web UI import). An empty key is generated from
+    // the feed name; provided keys must be valid and unique.
+    bool ReplaceFeeds(const std::vector<std::pair<std::string, RssFeed>>& feeds, int* imported,
+                      std::string& error);
 
     // Fetches one feed and returns up to `count` newest entries.
     bool FetchFeed(const std::string& key, int count, std::vector<RssItem>& items,

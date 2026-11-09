@@ -27,9 +27,10 @@ class RssReader;
 //        GET    /api/rss      - list RSS feeds as JSON (also used for export)
 //        GET    /api/rss?latest=1&feed=KEY&count=N - newest headlines
 //                               (feed empty = all feeds)
-//        POST   /api/rss      - add a feed (name, url, category, aliases), or
-//                               edit it when "key" is present; a {"feeds":[...]}
-//                               body replaces the whole list (import)
+//        POST   /api/rss      - add a feed (optional key, name, url, category,
+//                               aliases); a {"feeds":[...]} body replaces the
+//                               whole list (import)
+//        PUT    /api/rss      - edit a feed by key
 //        DELETE /api/rss?key=KEY - delete a feed
 class RadioWebServer {
 public:
