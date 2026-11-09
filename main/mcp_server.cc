@@ -15,6 +15,7 @@
 #include "application.h"
 #include "board.h"
 #include "display.h"
+#include "features/currency/currency_converter.h"
 #include "features/joke/joke_reader.h"
 #include "features/music/esp32_radio.h"
 #include "features/rss/rss_reader.h"
@@ -261,6 +262,28 @@ void McpServer::AddCommonTools() {
             "asks for another joke.",
             PropertyList(), [](const PropertyList& properties) -> ReturnValue {
                 return JokeReader::Tell();
+            });
+
+    // Currency converter
+    AddTool("self.currency.convert",
+            "Convert money between currencies using current daily exchange rates. Use it for "
+            "exchange-rate questions and conversions, e.g. \"курс доллара\", \"курс евро к "
+            "тенге\" or \"100 тенге в рублях\". Pass ISO 4217 codes: рубль=RUB, доллар=USD, "
+            "тенге=KZT, евро=EUR, юань=CNY. For a plain rate question keep `amount` at 1; `to` "
+            "defaults to RUB, so pass it explicitly for any other target currency. Read the "
+            "returned text to the user.",
+            PropertyList({Property("from", kPropertyTypeString),
+                          Property("to", kPropertyTypeString, std::string("RUB")),
+                          Property("amount", kPropertyTypeInteger, 1, 1, 1000000000)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                CurrencyConverter::Rate rate;
+                std::string error;
+                if (!CurrencyConverter::Convert(properties["from"].value<std::string>(),
+                                                properties["to"].value<std::string>(),
+                                                properties["amount"].value<int>(), rate, error)) {
+                    return std::string("Ошибка: ") + error;
+                }
+                return CurrencyConverter::Describe(rate);
             });
 
     // Restore the original tools list to the end of the tools list
