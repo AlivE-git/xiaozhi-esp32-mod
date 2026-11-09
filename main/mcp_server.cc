@@ -24,6 +24,22 @@
 
 #define TAG "MCP"
 
+namespace {
+
+// Tools that only report device state. They must not end the voice session,
+// because the user usually asks a follow-up question right after them.
+bool IsReadOnlyTool(const std::string& name) {
+    for (const char* read_only : {"self.get_device_status", "self.radio.get_stations",
+                                 "self.timer.get_remaining", "self.rss.list_feeds"}) {
+        if (name == read_only) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 McpServer::McpServer() {}
 
 McpServer::~McpServer() = default;
@@ -176,10 +192,6 @@ void McpServer::AddCommonTools() {
                     if (!timer->Start(seconds)) {
                         return std::string("Ошибка: не удалось установить таймер");
                     }
-                    // After the confirmation speech, go to standby instead of
-                    // reopening the mic in listening mode. The flag is consumed
-                    // by the TTS "stop" handler in Application.
-                    Application::GetInstance().RequestIdleAfterSpeaking();
                     return "Таймер установлен на " + timer->FormatRemaining();
                 });
         AddTool("self.timer.stop", "Stop and cancel the running countdown timer.", PropertyList(),
@@ -767,6 +779,16 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
             ESP_LOGE(TAG, "tools/call: %s", result.error().c_str());
             ReplyError(id, result.error(), response_sender);
             return;
+        }
+        // An action skill owns the voice session: once its result has been spoken,
+        // the device goes to standby instead of reopening the mic in listening
+        // mode. Read-only queries keep the conversation going. The flag is
+        // consumed by the TTS "stop" handler in Application.
+        auto& application = Application::GetInstance();
+        auto state = application.GetDeviceState();
+        if (!IsReadOnlyTool(tool->name()) &&
+            (state == kDeviceStateListening || state == kDeviceStateSpeaking)) {
+            application.RequestIdleAfterSpeaking();
         }
         ReplyResult(id, *result, response_sender);
     });

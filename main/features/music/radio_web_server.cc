@@ -60,8 +60,8 @@ body{background:#f1f4f8}
 
 <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
  <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-tab="radio">📻 Радио</button></li>
- <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
 </ul>
 <div class="tab-content">
 <div class="tab-pane active" id="pane-radio" role="tabpanel">
