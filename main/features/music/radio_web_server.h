@@ -6,9 +6,11 @@
 #include <string>
 
 class Esp32Radio;
+class RssReader;
 
 // Small HTTP server with a Web UI for managing the radio station list
-// (add / edit / delete stations and their voice-search aliases).
+// (add / edit / delete stations and their voice-search aliases), the countdown
+// timer and the RSS news feeds.
 // Pages: GET /           - station management page
 //        GET    /api/stations - list stations as JSON (also used for export)
 //        POST   /api/stations - add a station
@@ -22,17 +24,25 @@ class Esp32Radio;
 //        GET    /api/timer    - {running, remainingSeconds, remaining}
 //        POST   /api/timer?seconds=N - start (or replace) the countdown timer
 //        POST   /api/timer/stop - cancel the running countdown timer
+//        GET    /api/rss      - list RSS feeds as JSON (also used for export)
+//        GET    /api/rss?latest=1&feed=KEY&count=N - newest headlines
+//                               (feed empty = all feeds)
+//        POST   /api/rss      - add a feed (name, url, category, aliases), or
+//                               edit it when "key" is present; a {"feeds":[...]}
+//                               body replaces the whole list (import)
+//        DELETE /api/rss?key=KEY - delete a feed
 class RadioWebServer {
 public:
     RadioWebServer();
     ~RadioWebServer();
 
-    bool Start(Esp32Radio* radio, int port = 8081);
+    bool Start(Esp32Radio* radio, RssReader* rss = nullptr, int port = 8081);
     void Stop();
 
 private:
     httpd_handle_t server_handle_ = nullptr;
     Esp32Radio* radio_ = nullptr;
+    RssReader* rss_ = nullptr;
 
     static RadioWebServer* instance_;
 
@@ -45,6 +55,9 @@ private:
     static esp_err_t TimerHandler(httpd_req_t* req);
     static esp_err_t TimerSetHandler(httpd_req_t* req);
     static esp_err_t TimerStopHandler(httpd_req_t* req);
+    static esp_err_t RssHandler(httpd_req_t* req);
+    static esp_err_t RssSaveHandler(httpd_req_t* req);
+    static esp_err_t RssDeleteHandler(httpd_req_t* req);
 
     esp_err_t HandlePage(httpd_req_t* req);
     esp_err_t HandleStations(httpd_req_t* req);
@@ -55,8 +68,12 @@ private:
     esp_err_t HandleTimer(httpd_req_t* req);
     esp_err_t HandleTimerSet(httpd_req_t* req);
     esp_err_t HandleTimerStop(httpd_req_t* req);
+    esp_err_t HandleRss(httpd_req_t* req);
+    esp_err_t HandleRssSave(httpd_req_t* req);
+    esp_err_t HandleRssDelete(httpd_req_t* req);
 
     std::string StationsJson() const;
+    std::string FeedsJson() const;
     esp_err_t SendJson(httpd_req_t* req, int status, const std::string& body);
 };
 

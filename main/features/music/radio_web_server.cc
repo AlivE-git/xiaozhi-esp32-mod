@@ -4,6 +4,7 @@
 #include "board.h"
 #include "cjson_utils.h"
 #include "esp32_radio.h"
+#include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
 
 #include <esp_log.h>
@@ -60,6 +61,7 @@ body{background:#f1f4f8}
 <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
  <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-tab="radio">📻 Радио</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
 </ul>
 <div class="tab-content">
 <div class="tab-pane active" id="pane-radio" role="tabpanel">
@@ -160,6 +162,81 @@ body{background:#f1f4f8}
    </div>
   </form>
   <div class="text-muted small text-center mt-4">Таймер идёт независимо от радио и разговора с ассистентом; по окончании звучит сигнал.</div>
+ </div>
+</section>
+</div>
+
+<div class="tab-pane" id="pane-news" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header" id="feedFormTitle">➕ Добавить RSS-ленту</div>
+ <div class="card-body">
+  <form id="feedForm">
+   <div class="row g-3">
+    <div class="col-md-4">
+     <label class="form-label" for="feedName">Название <span class="text-muted">(как называть голосом)</span></label>
+     <input id="feedName" class="form-control" required autocomplete="off" placeholder="Лента">
+    </div>
+    <div class="col-md-8">
+     <label class="form-label" for="feedUrl">Адрес ленты <span class="text-muted">(RSS 2.0 или Atom, http/https)</span></label>
+     <input id="feedUrl" class="form-control" type="url" required autocomplete="off" placeholder="https://lenta.ru/rss/news">
+    </div>
+    <div class="col-md-4">
+     <label class="form-label" for="feedCategory">Категория <span class="text-muted">(необязательно)</span></label>
+     <input id="feedCategory" class="form-control" autocomplete="off" placeholder="новости">
+    </div>
+    <div class="col-md-8">
+     <label class="form-label" for="feedAliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую)</span></label>
+     <input id="feedAliases" class="form-control" autocomplete="off" placeholder="лента, новости lenta">
+    </div>
+    <div class="col-12 d-flex gap-2">
+     <button class="btn btn-primary" type="submit">💾 Сохранить ленту</button>
+     <button class="btn btn-outline-secondary d-none" type="button" id="feedCancelBtn">Отменить редактирование</button>
+    </div>
+   </div>
+  </form>
+  <div class="text-muted small mt-3">Ключ ленты создаётся автоматически из названия. Голосом можно попросить «прочитай 5 последних новостей».</div>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">📡 Ленты</div>
+ <div class="table-responsive">
+  <table class="table table-hover align-middle mb-0">
+   <thead class="table-dark"><tr><th>Ключ</th><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
+   <tbody id="feedRows"></tbody>
+  </table>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">⇅ Импорт / Экспорт</div>
+ <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+  <button class="btn btn-outline-success" type="button" id="feedExportBtn">⬇ Экспорт лент (JSON)</button>
+  <button class="btn btn-outline-warning" type="button" id="feedImportBtn">⬆ Импорт и замена всех лент</button>
+  <input type="file" id="feedImportFile" accept=".json,application/json" class="d-none">
+  <span class="text-muted small">Импорт полностью заменяет текущий список лент.</span>
+ </div>
+</section>
+
+<section class="card">
+ <div class="card-header">📰 Последние новости</div>
+ <div class="card-body">
+  <form id="newsForm" class="row g-2 align-items-end mb-3">
+   <div class="col-auto">
+    <label class="form-label small" for="newsFeed">Лента</label>
+    <select id="newsFeed" class="form-select"></select>
+   </div>
+   <div class="col-auto">
+    <label class="form-label small" for="newsCount">Заголовков</label>
+    <input id="newsCount" class="form-control" type="number" min="1" max="20" step="1" value="5" style="width:6rem">
+   </div>
+   <div class="col-auto">
+    <button class="btn btn-primary" type="submit">⬇ Загрузить</button>
+   </div>
+  </form>
+  <div id="newsStatus" class="small text-muted mb-2 d-none"></div>
+  <ol id="newsList" class="mb-0"></ol>
  </div>
 </section>
 </div>
@@ -302,10 +379,146 @@ document.getElementById('importFile').onchange=async e=>{
   else{msg('Импорт не удался: '+(res.error||r.status),false);}
   e.target.value='';
 };
+let editingFeed=null;
+let feedsCache=[];
+function renderFeedRows(){
+  const tb=document.getElementById('feedRows');tb.innerHTML='';
+  if(feedsCache.length===0){
+    tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">RSS-лент пока нет. Добавьте первую через форму выше или импортируйте список.</td></tr>';
+    return;}
+  feedsCache.forEach(f=>{
+    const tr=document.createElement('tr');
+    const category=f.category?' <span class="badge text-bg-secondary">'+esc(f.category)+'</span>':'';
+    tr.innerHTML='<td><code>'+esc(f.key)+'</code></td>'
+      +'<td><strong>'+esc(f.name)+'</strong>'+category+'</td>'
+      +'<td class="url">'+esc(f.url)+'</td>'
+      +'<td>'+esc((f.aliases||[]).join(', '))+'</td>';
+    const td=document.createElement('td');td.className='actions';
+    const eb=document.createElement('button');eb.className='btn btn-sm btn-outline-primary me-1';eb.textContent='✏️';
+    eb.onclick=()=>startFeedEdit(f);
+    const db=document.createElement('button');db.className='btn btn-sm btn-outline-danger';db.textContent='🗑';
+    db.onclick=async()=>{if(!confirm('Удалить ленту '+f.name+'?'))return;
+      const rr=await fetch('/api/rss?key='+encodeURIComponent(f.key),{method:'DELETE'});
+      msg(rr.ok?'Лента удалена':'Не удалось удалить ленту',rr.ok);loadRss();};
+    td.append(eb,db);tr.appendChild(td);tb.appendChild(tr);});
+}
+function renderFeedSelect(){
+  const sel=document.getElementById('newsFeed');const current=sel.value;
+  sel.innerHTML='<option value="">Все ленты</option>'
+    +feedsCache.map(f=>'<option value="'+esc(f.key)+'">'+esc(f.name)
+      +(f.category?' · '+esc(f.category):'')+'</option>').join('');
+  if(feedsCache.some(f=>f.key===current))sel.value=current;
+}
+async function loadRss(){
+  try{
+    const r=await fetch('/api/rss');
+    if(!r.ok)return;
+    const data=await r.json();
+    feedsCache=data.feeds||[];
+    renderFeedRows();renderFeedSelect();
+  }catch(e){/* device unreachable; keep last state */}
+}
+function startFeedEdit(f){
+  editingFeed=f.key;
+  document.getElementById('feedFormTitle').textContent='✏️ Редактирование ленты '+f.key;
+  document.getElementById('feedName').value=f.name||'';
+  document.getElementById('feedUrl').value=f.url||'';
+  document.getElementById('feedCategory').value=f.category||'';
+  document.getElementById('feedAliases').value=(f.aliases||[]).join(', ');
+  document.getElementById('feedCancelBtn').classList.remove('d-none');
+  document.getElementById('feedFormTitle').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function resetFeedForm(){
+  editingFeed=null;document.getElementById('feedForm').reset();
+  document.getElementById('feedFormTitle').textContent='➕ Добавить RSS-ленту';
+  document.getElementById('feedCancelBtn').classList.add('d-none');
+}
+document.getElementById('feedCancelBtn').onclick=resetFeedForm;
+document.getElementById('feedForm').onsubmit=async e=>{
+  e.preventDefault();
+  const body={name:document.getElementById('feedName').value.trim(),
+    url:document.getElementById('feedUrl').value.trim(),
+    category:document.getElementById('feedCategory').value.trim(),
+    aliases:document.getElementById('feedAliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
+  if(editingFeed)body.key=editingFeed;
+  const r=await fetch('/api/rss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'Лента сохранена':('Ошибка: '+(res.error||r.status)),r.ok);
+  if(r.ok){resetFeedForm();loadRss();}
+};
+document.getElementById('feedExportBtn').onclick=async()=>{
+  try{
+    const r=await fetch('/api/rss');
+    if(!r.ok){msg('Не удалось экспортировать ленты',false);return;}
+    const data=await r.json();
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);a.download='rss-feeds.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    msg('Ленты экспортированы');
+  }catch(e){msg('Не удалось экспортировать ленты',false);}
+};
+document.getElementById('feedImportBtn').onclick=()=>{
+  document.getElementById('feedImportFile').click();
+};
+document.getElementById('feedImportFile').onchange=async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  let data;
+  try{data=JSON.parse(await file.text());}
+  catch(err){msg('Импорт не удался: неверный JSON-файл',false);e.target.value='';return;}
+  if(!data||!Array.isArray(data.feeds)||data.feeds.length===0){
+    msg('Импорт не удался: ожидается непустой массив "feeds"',false);e.target.value='';return;}
+  if(!confirm('Заменить все текущие ленты импортированным списком из '+data.feeds.length+' лент?')){
+    e.target.value='';return;}
+  const r=await fetch('/api/rss',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({feeds:data.feeds})});
+  const res=await r.json().catch(()=>({}));
+  if(r.ok){msg('Импортировано лент: '+(res.imported||data.feeds.length));resetFeedForm();loadRss();}
+  else{msg('Импорт не удался: '+(res.error||r.status),false);}
+  e.target.value='';
+};
+function renderNewsStatus(items,errors,feed){
+  const status=document.getElementById('newsStatus');
+  status.classList.remove('d-none');
+  if(items.length===0){
+    status.textContent=errors.length?('Не удалось прочитать: '+errors.join('; ')):'Новостей не найдено.';
+    return;}
+  status.textContent=(feed?'Заголовки ленты':'Заголовки всех лент')+' ('+items.length+')'
+    +(errors.length?'; ошибки: '+errors.join('; '):'');
+}
+async function loadLatest(feed,count){
+  const list=document.getElementById('newsList');
+  const status=document.getElementById('newsStatus');
+  list.innerHTML='';
+  status.classList.remove('d-none');status.textContent='Загружаю ленты…';
+  try{
+    const r=await fetch('/api/rss?latest=1&feed='+encodeURIComponent(feed)+'&count='+count);
+    const data=await r.json();
+    const items=data.items||[];const errors=data.errors||[];
+    renderNewsStatus(items,errors,feed);
+    items.forEach(it=>{
+      const li=document.createElement('li');li.className='mb-2';
+      const title=it.link?'<a href="'+esc(it.link)+'" target="_blank" rel="noopener">'+esc(it.title)+'</a>':esc(it.title);
+      const meta='<div class="small text-muted">'+esc(it.feed)+(it.published?' · '+esc(it.published):'')+'</div>';
+      li.innerHTML='<div>'+title+'</div>'+meta;
+      list.appendChild(li);
+    });
+  }catch(err){
+    status.textContent='Устройство недоступно';
+  }
+}
+document.getElementById('newsForm').onsubmit=e=>{
+  e.preventDefault();
+  const feed=document.getElementById('newsFeed').value;
+  const count=Math.max(1,Math.min(20,parseInt(document.getElementById('newsCount').value,10)||5));
+  loadLatest(feed,count);
+};
 function showTab(name){
   document.querySelectorAll('#mainTabs .nav-link').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-content > .tab-pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='timer')loadTimer();
+  if(name==='news')loadRss();
 }
 document.querySelectorAll('#mainTabs .nav-link').forEach(b=>{b.onclick=()=>showTab(b.dataset.tab)});
 function paintTimer(t){
@@ -415,6 +628,36 @@ bool StationFromJson(cJSON* root, std::string* key, RadioStation* station) {
     return true;
 }
 
+bool FeedFromJson(cJSON* root, RssFeed* feed) {
+    if (root == nullptr || feed == nullptr || !cJSON_IsObject(root)) {
+        return false;
+    }
+    cJSON* name = cJSON_GetObjectItem(root, "name");
+    cJSON* url = cJSON_GetObjectItem(root, "url");
+    if (!cJSON_IsString(name) || !cJSON_IsString(url)) {
+        return false;
+    }
+    feed->name = name->valuestring;
+    feed->url = url->valuestring;
+    if (cJSON* category = cJSON_GetObjectItem(root, "category"); cJSON_IsString(category)) {
+        feed->category = category->valuestring;
+    }
+    // Aliases may arrive as a JSON array (Web UI) or a comma separated string.
+    if (cJSON* aliases = cJSON_GetObjectItem(root, "aliases")) {
+        if (cJSON_IsArray(aliases)) {
+            cJSON* alias = nullptr;
+            cJSON_ArrayForEach(alias, aliases) {
+                if (cJSON_IsString(alias)) {
+                    feed->aliases.emplace_back(alias->valuestring);
+                }
+            }
+        } else if (cJSON_IsString(aliases)) {
+            feed->aliases = SplitAliases(aliases->valuestring);
+        }
+    }
+    return true;
+}
+
 std::string ErrorJson(const std::string& message) {
     CJsonUniquePtr root(cJSON_CreateObject());
     if (root == nullptr) {
@@ -438,7 +681,7 @@ RadioWebServer::~RadioWebServer() {
     }
 }
 
-bool RadioWebServer::Start(Esp32Radio* radio, int port) {
+bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     if (server_handle_ != nullptr) {
         return true;
     }
@@ -447,6 +690,7 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
         return false;
     }
     radio_ = radio;
+    rss_ = rss;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
@@ -458,7 +702,7 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     config.max_open_sockets = 3;
     config.lru_purge_enable = true;
     config.ctrl_port = 32770;
-    // We register 12 handlers; the default limit (8) is not enough.
+    // We register 15 handlers; the default limit (8) is not enough.
     config.max_uri_handlers = 16;
 
     httpd_uri_t page_uri = {
@@ -522,6 +766,18 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
         .handler = TimerStopHandler,
         .user_ctx = nullptr,
     };
+    httpd_uri_t rss_uri = {
+        .uri = "/api/rss",
+        .method = HTTP_GET,
+        .handler = RssHandler,
+        .user_ctx = nullptr,
+    };
+    httpd_uri_t rss_post_uri = rss_uri;
+    rss_post_uri.method = HTTP_POST;
+    rss_post_uri.handler = RssSaveHandler;
+    httpd_uri_t rss_delete_uri = rss_uri;
+    rss_delete_uri.method = HTTP_DELETE;
+    rss_delete_uri.handler = RssDeleteHandler;
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
@@ -545,6 +801,9 @@ bool RadioWebServer::Start(Esp32Radio* radio, int port) {
     register_uri(&timer_uri);
     register_uri(&timer_set_uri);
     register_uri(&timer_stop_uri);
+    register_uri(&rss_uri);
+    register_uri(&rss_post_uri);
+    register_uri(&rss_delete_uri);
     ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);
     return true;
@@ -619,6 +878,27 @@ esp_err_t RadioWebServer::TimerStopHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     return instance_->HandleTimerStop(req);
+}
+
+esp_err_t RadioWebServer::RssHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->rss_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleRss(req);
+}
+
+esp_err_t RadioWebServer::RssSaveHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->rss_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleRssSave(req);
+}
+
+esp_err_t RadioWebServer::RssDeleteHandler(httpd_req_t* req) {
+    if (instance_ == nullptr || instance_->rss_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleRssDelete(req);
 }
 
 esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
@@ -898,6 +1178,193 @@ esp_err_t RadioWebServer::HandleTimerStop(httpd_req_t* req) {
     ESP_LOGI(TAG, "Stop timer request");
     if (!timer->Stop()) {
         return SendJson(req, 409, ErrorJson("No active timer"));
+    }
+    return SendJson(req, 200, "{\"ok\":true}");
+}
+
+std::string RadioWebServer::FeedsJson() const {
+    CJsonUniquePtr root(cJSON_CreateObject());
+    CJsonUniquePtr array(cJSON_CreateArray());
+    if (root == nullptr || array == nullptr) {
+        return "{}";
+    }
+    for (const auto& [key, feed] : rss_->GetFeeds()) {
+        CJsonUniquePtr item(cJSON_CreateObject());
+        CJsonUniquePtr aliases(cJSON_CreateArray());
+        if (item == nullptr || aliases == nullptr) {
+            continue;
+        }
+        cJSON_AddStringToObject(item.get(), "key", key.c_str());
+        cJSON_AddStringToObject(item.get(), "name", feed.name.c_str());
+        cJSON_AddStringToObject(item.get(), "url", feed.url.c_str());
+        cJSON_AddStringToObject(item.get(), "category", feed.category.c_str());
+        for (const auto& alias : feed.aliases) {
+            cJSON_AddItemToArray(aliases.get(), cJSON_CreateString(alias.c_str()));
+        }
+        cJSON_AddItemToObject(item.get(), "aliases", aliases.release());
+        cJSON_AddItemToArray(array.get(), item.release());
+    }
+    cJSON_AddItemToObject(root.get(), "feeds", array.release());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return text != nullptr ? text.get() : "{}";
+}
+
+esp_err_t RadioWebServer::HandleRss(httpd_req_t* req) {
+    const char* query = strchr(req->uri, '?');
+    const char* query_str = (query != nullptr) ? query + 1 : "";
+
+    char latest[8] = {0};
+    if (httpd_query_key_value(query_str, "latest", latest, sizeof(latest)) != ESP_OK ||
+        strcmp(latest, "1") != 0) {
+        return SendJson(req, 200, FeedsJson());
+    }
+
+    // "feed" is a feed key (or empty for all feeds); "count" is 1..20.
+    char feed_key[64] = {0};
+    char count_text[8] = {0};
+    httpd_query_key_value(query_str, "feed", feed_key, sizeof(feed_key));
+    int count = 5;
+    if (httpd_query_key_value(query_str, "count", count_text, sizeof(count_text)) == ESP_OK) {
+        char* end = nullptr;
+        long parsed = strtol(count_text, &end, 10);
+        if (end != nullptr && *end == '\0' && parsed > 0) {
+            count = static_cast<int>(parsed > 20 ? 20 : parsed);
+        }
+    }
+    ESP_LOGI(TAG, "RSS latest request: feed='%s', count=%d", feed_key, count);
+
+    std::vector<std::pair<std::string, RssItem>> items;
+    std::vector<std::string> errors;
+    rss_->FetchLatest(feed_key, count, items, errors);
+
+    CJsonUniquePtr root(cJSON_CreateObject());
+    CJsonUniquePtr items_json(cJSON_CreateArray());
+    if (root == nullptr || items_json == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    for (const auto& [feed_name, item] : items) {
+        CJsonUniquePtr entry(cJSON_CreateObject());
+        if (entry == nullptr) {
+            continue;
+        }
+        cJSON_AddStringToObject(entry.get(), "feed", feed_name.c_str());
+        cJSON_AddStringToObject(entry.get(), "title", item.title.c_str());
+        cJSON_AddStringToObject(entry.get(), "link", item.link.c_str());
+        cJSON_AddStringToObject(entry.get(), "published", item.published.c_str());
+        cJSON_AddItemToArray(items_json.get(), entry.release());
+    }
+    cJSON_AddItemToObject(root.get(), "items", items_json.release());
+
+    CJsonUniquePtr errors_json(cJSON_CreateArray());
+    if (errors_json == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+    for (const auto& error : errors) {
+        cJSON_AddItemToArray(errors_json.get(), cJSON_CreateString(error.c_str()));
+    }
+    cJSON_AddItemToObject(root.get(), "errors", errors_json.release());
+
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {
+    if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
+        return SendJson(req, 400, ErrorJson("Invalid request body size"));
+    }
+    std::string body(req->content_len, '\0');
+    size_t received = 0;
+    while (received < body.size()) {
+        int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
+        if (ret <= 0) {
+            return SendJson(req, 400, ErrorJson("Failed to read request body"));
+        }
+        received += static_cast<size_t>(ret);
+    }
+
+    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
+    if (root == nullptr) {
+        return SendJson(req, 400, ErrorJson("Invalid JSON body"));
+    }
+
+    // Import replaces the whole list and is sent as {"feeds": [...]}.
+    cJSON* feeds = cJSON_GetObjectItem(root.get(), "feeds");
+    if (cJSON_IsArray(feeds)) {
+        std::vector<RssFeed> imported_feeds;
+        cJSON* item = nullptr;
+        cJSON_ArrayForEach(item, feeds) {
+            RssFeed feed;
+            if (!FeedFromJson(item, &feed)) {
+                return SendJson(req, 400,
+                                ErrorJson("Invalid feed entry: name and url are required"));
+            }
+            imported_feeds.push_back(std::move(feed));
+        }
+        ESP_LOGI(TAG, "Import RSS feeds request: %d feeds",
+                 static_cast<int>(imported_feeds.size()));
+        int imported = 0;
+        std::string error;
+        if (!rss_->ReplaceFeeds(imported_feeds, &imported, error)) {
+            return SendJson(req, 400, ErrorJson(error));
+        }
+        CJsonUniquePtr result(cJSON_CreateObject());
+        if (result == nullptr) {
+            return SendJson(req, 500, ErrorJson("Out of memory"));
+        }
+        cJSON_AddBoolToObject(result.get(), "ok", true);
+        cJSON_AddNumberToObject(result.get(), "imported", imported);
+        CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
+        return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+    }
+
+    RssFeed feed;
+    if (!FeedFromJson(root.get(), &feed)) {
+        return SendJson(req, 400, ErrorJson("Expected JSON with name and url"));
+    }
+    // The device only fetches plain http(s); anything else is a typo in the UI.
+    if (feed.name.empty() || feed.name.size() > 64 || feed.url.size() < 8 ||
+        feed.url.size() > 256 ||
+        (feed.url.rfind("http://", 0) != 0 && feed.url.rfind("https://", 0) != 0)) {
+        return SendJson(req, 400, ErrorJson("Feed needs a name (up to 64 chars) and an http(s) URL"));
+    }
+
+    // Editing sends the generated key back; the key itself is never user-edited.
+    cJSON* key_item = cJSON_GetObjectItem(root.get(), "key");
+    std::string key = cJSON_IsString(key_item) ? key_item->valuestring : "";
+    const bool is_edit = !key.empty();
+    CJsonUniquePtr result(cJSON_CreateObject());
+    if (result == nullptr) {
+        return SendJson(req, 500, ErrorJson("Out of memory"));
+    }
+
+    if (is_edit) {
+        ESP_LOGI(TAG, "Update RSS feed request: key='%s'", key.c_str());
+        if (!rss_->UpdateFeed(key, feed)) {
+            return SendJson(req, 404, ErrorJson("Feed not found or failed to save it"));
+        }
+    } else {
+        ESP_LOGI(TAG, "Add RSS feed request: url='%s'", feed.url.c_str());
+        if (!rss_->AddFeed(feed, &key)) {
+            return SendJson(req, 409, ErrorJson("Feed list is full or it could not be saved"));
+        }
+    }
+
+    cJSON_AddBoolToObject(result.get(), "ok", true);
+    cJSON_AddStringToObject(result.get(), "key", key.c_str());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
+    return SendJson(req, is_edit ? 200 : 201, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t RadioWebServer::HandleRssDelete(httpd_req_t* req) {
+    char key[64] = {0};
+    const char* query = strchr(req->uri, '?');
+    const char* query_str = (query != nullptr) ? query + 1 : "";
+    if (httpd_query_key_value(query_str, "key", key, sizeof(key)) != ESP_OK || key[0] == '\0') {
+        return SendJson(req, 400, ErrorJson("Missing key query parameter"));
+    }
+    ESP_LOGI(TAG, "Delete RSS feed request: key='%s'", key);
+    if (!rss_->DeleteFeed(key)) {
+        return SendJson(req, 404, ErrorJson("Feed not found or failed to save the list"));
     }
     return SendJson(req, 200, "{\"ok\":true}");
 }

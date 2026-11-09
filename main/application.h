@@ -25,6 +25,7 @@
 class Esp32Radio;
 class RadioWebServer;
 class CountdownTimer;
+class RssReader;
 
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
@@ -133,6 +134,7 @@ public:
     Esp32Radio* GetRadio() { return radio_; }
     RadioWebServer* GetRadioWebServer() { return radio_web_server_; }
     CountdownTimer* GetTimer() { return timer_; }
+    RssReader* GetRssReader() { return rss_reader_; }
 
     /**
      * Reset protocol resources (thread-safe)
@@ -163,6 +165,7 @@ private:
 	Esp32Radio* radio_ = nullptr;
 	RadioWebServer* radio_web_server_ = nullptr;
 	CountdownTimer* timer_ = nullptr;
+	RssReader* rss_reader_ = nullptr;
 
     std::function<void(const std::string&)> mcp_broadcast_callback_;
 

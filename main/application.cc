@@ -7,6 +7,7 @@
 #include "display.h"
 #include "features/music/esp32_radio.h"
 #include "features/music/radio_web_server.h"
+#include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
@@ -71,6 +72,8 @@ Application::~Application() {
 	    }
     delete timer_;
     timer_ = nullptr;
+    delete rss_reader_;
+    rss_reader_ = nullptr;
     vEventGroupDelete(event_group_);
 }
 
@@ -127,10 +130,15 @@ void Application::Initialize() {
         radio_->Initialize();
     }
 
-    // Web UI for managing the station list (add/edit/delete + voice aliases).
+    // Web UI for the radio stations, the countdown timer and the RSS feeds.
     // The server itself is started in HandleNetworkConnectedEvent(): starting
     // httpd before the TCP/IP stack is up crashes in tcpip_send_msg_wait_sem.
     radio_web_server_ = new RadioWebServer();
+
+    // Create the RSS news reader (feed list only; articles are fetched on
+    // demand from the Web UI or the assistant tools)
+    rss_reader_ = new RssReader();
+    rss_reader_->Initialize();
 
     // Create the countdown timer (idle until a timer is requested)
     timer_ = new CountdownTimer();
@@ -340,7 +348,7 @@ void Application::HandleNetworkConnectedEvent() {
     // Now the TCP/IP stack is up: safe to start the radio Web UI server.
     // Start() is idempotent, so reconnects do not restart it.
     if (radio_web_server_ != nullptr && radio_ != nullptr) {
-        radio_web_server_->Start(radio_);
+        radio_web_server_->Start(radio_, rss_reader_);
     }
 
     auto state = GetDeviceState();

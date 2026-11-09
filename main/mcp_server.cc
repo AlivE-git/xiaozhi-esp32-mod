@@ -16,6 +16,7 @@
 #include "board.h"
 #include "display.h"
 #include "features/music/esp32_radio.h"
+#include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
@@ -197,6 +198,46 @@ void McpServer::AddCommonTools() {
                     }
                     return "Осталось " + timer->FormatRemaining() + " (" +
                            std::to_string(timer->GetRemainingSeconds()) + " секунд)";
+                });
+    }
+
+    // RSS news reader
+    auto rss = Application::GetInstance().GetRssReader();
+    if (rss) {
+        AddTool("self.rss.list_feeds",
+                "List the RSS news feeds configured on the device. Use it when the user asks "
+                "which news sources are available.",
+                PropertyList(), [rss](const PropertyList& properties) -> ReturnValue {
+                    auto feeds = rss->GetFeeds();
+                    if (feeds.empty()) {
+                        return std::string(
+                            "RSS-ленты не настроены. Их можно добавить в веб-интерфейсе устройства.");
+                    }
+                    std::string response = "RSS-ленты устройства:\n";
+                    for (const auto& [key, feed] : feeds) {
+                        response += "- " + feed.name;
+                        if (!feed.category.empty()) {
+                            response += " [" + feed.category + "]";
+                        }
+                        if (!feed.aliases.empty()) {
+                            response += " (" + feed.aliases.front() + ")";
+                        }
+                        response += ": " + feed.url + "\n";
+                    }
+                    return response;
+                });
+        AddTool("self.rss.read_latest",
+                "Read the latest news headlines from an RSS feed aloud. Fetches the feed from "
+                "the internet right now, so relay the returned headlines to the user. `feed` is "
+                "the feed name, alias or category as spoken by the user; leave it empty to use "
+                "the default feed. "
+                "`count` is how many headlines to read (1-10).",
+                PropertyList({Property("feed", kPropertyTypeString, std::string("")),
+                              Property("count", kPropertyTypeInteger, 5, 1, 10)}),
+                [rss](const PropertyList& properties) -> ReturnValue {
+                    auto feed = properties["feed"].value<std::string>();
+                    int count = properties["count"].value<int>();
+                    return rss->ReadHeadlines(feed, count);
                 });
     }
 
