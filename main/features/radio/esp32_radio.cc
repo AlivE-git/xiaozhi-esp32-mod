@@ -487,9 +487,11 @@ bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& statio
     // Clear the buffer
     ClearAudioBuffer();
 
-    // Configure download thread stack size
+    // Configure download thread stack size. HTTPS streams do the TLS handshake
+    // on this thread, and mbedtls needs far more than the 3.5 KB that plain HTTP
+    // used to get (that overflowed in mbedtls_mpi_div_mpi).
     esp_pthread_cfg_t cfg = esp_pthread_get_default_config();
-    cfg.stack_size = 1024 * 3 + 512;
+    cfg.stack_size = 1024 * 12;
     cfg.prio = 5;
     cfg.thread_name = "radio_download";
     esp_pthread_set_cfg(&cfg);
