@@ -20,6 +20,7 @@
 #include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
+#include "features/wol/wol.h"
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
 #include "settings.h"
@@ -377,6 +378,49 @@ void McpServer::AddCommonTools() {
                     return std::string("Ошибка: ") + error;
                 }
                 return CurrencyConverter::Describe(rate);
+            });
+
+    // Wake-on-LAN: the computer is off, so only its saved MAC address is needed.
+    PropertyList wake_properties;
+    wake_properties.AddProperty(Property("name", kPropertyTypeString, std::string("")));
+    AddTool("self.pc.wake",
+            "Turn on a computer in the local network with Wake-on-LAN. Use it when the user "
+            "asks to turn on, wake up or start a computer. The computers are configured in the "
+            "Web UI; pass the name of the one the user asked for in `name`, or leave `name` "
+            "empty when the user did not name one: that wakes the computer marked as default.",
+            wake_properties, [](const PropertyList& properties) -> ReturnValue {
+                wol::Computer computer;
+                std::string error;
+                if (!wol::Wake(properties["name"].value<std::string>(), computer, error)) {
+                    ESP_LOGW(TAG, "Wake-on-LAN failed: %s", error.c_str());
+                    return std::string("Ошибка: ") + error;
+                }
+                return std::string("Магический пакет отправлен, включается «") + computer.name +
+                       "».";
+            });
+
+    AddTool("self.pc.list",
+            "List the computers saved for Wake-on-LAN with their names. Use it when the user "
+            "asks which computers can be turned on or what their names are.",
+            PropertyList(), [](const PropertyList& properties) -> ReturnValue {
+                const std::vector<wol::Computer> computers = wol::LoadComputers();
+                if (computers.empty()) {
+                    return std::string(
+                        "Список компьютеров пуст: добавьте компьютер в веб-интерфейсе на "
+                        "вкладке Wake-on-LAN.");
+                }
+                std::string text = "Сохранены компьютеры: ";
+                for (size_t i = 0; i < computers.size(); ++i) {
+                    if (i > 0) {
+                        text += ", ";
+                    }
+                    text += computers[i].name;
+                    if (computers[i].is_default) {
+                        text += " (по умолчанию)";
+                    }
+                }
+                text += ". Назовите нужный, чтобы включить его.";
+                return text;
             });
 
     // Restore the original tools list to the end of the tools list

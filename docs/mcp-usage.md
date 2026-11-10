@@ -106,6 +106,8 @@ A tool registered this way will not appear in a regular `tools/list` response. T
 | `self.screen.set_brightness` | Set screen brightness when a backlight is available (`brightness`: 0-100). |
 | `self.screen.set_theme` | Switch UI theme (`theme`: `"light"` or `"dark"`), when LVGL is enabled. |
 | `self.camera.take_photo` | Take a picture with the on-board camera (when the board has one) and answer the given `question` about it. |
+| `self.pc.wake` | Turn on a computer with Wake-on-LAN (`name` picks one from the list saved in the Web UI; an empty `name` wakes the computer marked as default, or the only saved one). |
+| `self.pc.list` | Name the computers saved for Wake-on-LAN and which one is the default. |
 
 Board-specific tools are appended after these by each board's `InitializeTools()`.
 

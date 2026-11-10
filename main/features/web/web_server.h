@@ -13,7 +13,7 @@
 // modules add their own endpoints after it starts, e.g. the radio registers
 // /api/stations from RadioWebApi::Register().
 //
-// Pages: GET /          - the device page (radio, news, timer, skills, system)
+// Pages: GET /          - the device page (radio, news, timer, skills, system, wake-on-lan)
 //        GET  /api/timer                 - {running, remainingSeconds, remaining}
 //        POST /api/timer?seconds=N       - start (or replace) the countdown timer
 //        POST /api/timer/stop            - cancel the running countdown timer

@@ -8,6 +8,7 @@
 #include "features/radio/radio_web_api.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
+#include "features/wol/wol_web_api.h"
 #include "mcp_server.h"
 
 #include <esp_log.h>
@@ -61,6 +62,7 @@ body{background:#f1f4f8}
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="skills">🧠 Навыки</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="wol">🌐 Wake-on-LAN</button></li>
 </ul>
 <div class="tab-content">
 <div class="tab-pane active" id="pane-radio" role="tabpanel">
@@ -271,6 +273,59 @@ body{background:#f1f4f8}
  <div class="card-body d-flex flex-wrap gap-2 align-items-center">
   <button class="btn btn-outline-danger" type="button" id="rebootBtn">🔄 Перезагрузить</button>
   <span class="text-muted small">Настройки в памяти устройства и в NVS сохраняются.</span>
+ </div>
+</section>
+</div>
+
+<div class="tab-pane" id="pane-wol" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header" id="wolFormTitle">➕ Добавить компьютер</div>
+ <div class="card-body">
+  <form id="wolForm">
+   <div class="row g-3">
+    <div class="col-md-4">
+     <label class="form-label" for="wolName">Название</label>
+     <input id="wolName" class="form-control" type="text" placeholder="Рабочий ПК" required autocomplete="off">
+    </div>
+    <div class="col-md-4">
+     <label class="form-label" for="wolMac">MAC-адрес</label>
+     <input id="wolMac" class="form-control" type="text" placeholder="AA:BB:CC:DD:EE:FF" required autocomplete="off">
+    </div>
+    <div class="col-md-2">
+     <label class="form-label" for="wolBroadcast">Адрес</label>
+     <input id="wolBroadcast" class="form-control" type="text" value="255.255.255.255" autocomplete="off">
+    </div>
+    <div class="col-md-2">
+     <label class="form-label" for="wolPort">Порт</label>
+     <input id="wolPort" class="form-control" type="number" min="1" max="65535" value="9">
+    </div>
+    <div class="col-12 d-flex gap-2">
+     <button class="btn btn-primary" type="submit">💾 Сохранить ПК</button>
+     <button class="btn btn-outline-secondary d-none" type="button" id="wolCancelBtn">Отменить редактирование</button>
+    </div>
+   </div>
+  </form>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">🌐 Компьютеры</div>
+ <div class="table-responsive">
+  <table class="table table-hover align-middle mb-0">
+   <thead class="table-dark"><tr><th>Название</th><th>MAC-адрес</th><th>Широковещательный адрес</th><th style="width:5rem">Порт</th><th class="actions">Действия</th></tr></thead>
+   <tbody id="wolRows"></tbody>
+  </table>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">⇅ Импорт / Экспорт</div>
+ <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+  <button class="btn btn-outline-success" type="button" id="wolExportBtn">⬇ Экспорт компьютеров (JSON)</button>
+  <button class="btn btn-outline-warning" type="button" id="wolImportBtn">⬆ Импорт и замена всех компьютеров</button>
+  <input type="file" id="wolImportFile" accept=".json,application/json" class="d-none">
+  <span class="text-muted small">Импорт полностью заменяет текущий список компьютеров.</span>
  </div>
 </section>
 </div>
@@ -517,6 +572,7 @@ function showTab(name){
   if(name==='news')loadRss();
   if(name==='skills')loadTools();
   if(name==='system')loadSystem();
+  if(name==='wol')loadWol();
 }
 document.querySelectorAll('#mainTabs .nav-link').forEach(b=>{b.onclick=()=>showTab(b.dataset.tab)});
 function paintTimer(t){
@@ -645,6 +701,130 @@ document.getElementById('volumeSlider').onchange=e=>saveVolume(parseInt(e.target
 document.getElementById('checkJokeBtn').onclick=e=>checkService('joke',e.currentTarget);
 document.getElementById('checkCurrencyBtn').onclick=e=>checkService('currency',e.currentTarget);
 document.getElementById('rebootBtn').onclick=rebootDevice;
+let wolCache=[];
+let editingWolKey='';
+function renderWolRows(){
+  const tb=document.getElementById('wolRows');tb.innerHTML='';
+  if(wolCache.length===0){
+    tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">Компьютеров пока нет. Добавьте первый через форму выше или импортируйте список.</td></tr>';
+    return;}
+  wolCache.forEach(c=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td><strong>'+esc(c.name)+'</strong>'+(c.default?' <span title="По умолчанию">⭐</span>':'')+'</td>'
+      +'<td><code>'+esc(c.mac)+'</code></td>'
+      +'<td>'+esc(c.broadcast)+'</td>'
+      +'<td>'+esc(c.port)+'</td>';
+    const td=document.createElement('td');td.className='actions';
+    const wake=document.createElement('button');wake.type='button';wake.className='btn btn-sm btn-outline-primary me-1';wake.textContent='⏻';wake.title='Включить';wake.onclick=()=>wakeWol(c.key);
+    const star=document.createElement('button');star.type='button';star.className='btn btn-sm me-1 '+(c.default?'btn-warning':'btn-outline-warning');star.textContent='⭐';star.title=c.default?'Снять отметку по умолчанию':'Включать по фразе «включи компьютер»';star.onclick=()=>setDefaultWol(c.key,!c.default);
+    const edit=document.createElement('button');edit.type='button';edit.className='btn btn-sm btn-outline-secondary me-1';edit.textContent='✏️';edit.title='Изменить';edit.onclick=()=>editWol(c.key);
+    const del=document.createElement('button');del.type='button';del.className='btn btn-sm btn-outline-danger';del.textContent='🗑';del.title='Удалить';del.onclick=()=>deleteWol(c.key);
+    td.append(wake,star,edit,del);tr.appendChild(td);tb.appendChild(tr);
+  });
+}
+async function loadWol(){
+  try{
+    const r=await fetch('/api/wol');
+    if(!r.ok){msg('Не удалось получить список компьютеров',false);return;}
+    const d=await r.json();
+    wolCache=d.computers||[];
+    renderWolRows();
+  }catch(e){msg('Не удалось получить список компьютеров: устройство недоступно',false);}
+}
+function resetWolForm(){
+  editingWolKey='';
+  document.getElementById('wolForm').reset();
+  document.getElementById('wolFormTitle').textContent='➕ Добавить компьютер';
+  document.getElementById('wolCancelBtn').classList.add('d-none');
+}
+function editWol(key){
+  const c=wolCache.find(x=>x.key===key);
+  if(!c)return;
+  editingWolKey=key;
+  document.getElementById('wolFormTitle').textContent='✏️ Изменение компьютера «'+c.name+'»';
+  document.getElementById('wolName').value=c.name||'';
+  document.getElementById('wolMac').value=c.mac||'';
+  document.getElementById('wolBroadcast').value=c.broadcast||'255.255.255.255';
+  document.getElementById('wolPort').value=c.port||9;
+  document.getElementById('wolCancelBtn').classList.remove('d-none');
+  document.getElementById('wolFormTitle').scrollIntoView({behavior:'smooth',block:'start'});
+}
+document.getElementById('wolForm').onsubmit=async e=>{
+  e.preventDefault();
+  const body={
+    name:document.getElementById('wolName').value.trim(),
+    mac:document.getElementById('wolMac').value.trim(),
+    broadcast:document.getElementById('wolBroadcast').value.trim()||'255.255.255.255',
+    port:parseInt(document.getElementById('wolPort').value,10)||9
+  };
+  const url=editingWolKey?('/api/wol?key='+encodeURIComponent(editingWolKey)):'/api/wol';
+  try{
+    const r=await fetch(url,{method:editingWolKey?'PUT':'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await r.json().catch(()=>({}));
+    msg(r.ok?(editingWolKey?'Компьютер сохранён':'Компьютер добавлен'):'Не удалось сохранить: '+(res.error||r.status),r.ok);
+    if(r.ok){resetWolForm();await loadWol();}
+  }catch(e){msg('Не удалось сохранить: устройство недоступно',false);}
+};
+async function wakeWol(key){
+  try{
+    const r=await fetch('/api/wol/wake?key='+encodeURIComponent(key),{method:'POST'});
+    const res=await r.json().catch(()=>({}));
+    msg(r.ok?'Магический пакет отправлен — включается «'+((res&&res.name)||'компьютер')+'»':'Не удалось включить: '+(res.error||r.status),r.ok);
+  }catch(e){msg('Не удалось отправить пакет: устройство недоступно',false);}
+}
+async function setDefaultWol(key,on){
+  const c=wolCache.find(x=>x.key===key);
+  if(!c)return;
+  try{
+    const r=await fetch('/api/wol?key='+encodeURIComponent(key),{method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:c.name,mac:c.mac,broadcast:c.broadcast,port:c.port,default:on})});
+    const res=await r.json().catch(()=>({}));
+    msg(r.ok?(on?'Компьютер по умолчанию: «'+c.name+'»':'Отметка по умолчанию снята'):'Не удалось сохранить: '+(res.error||r.status),r.ok);
+    if(r.ok)await loadWol();
+  }catch(e){msg('Не удалось сохранить: устройство недоступно',false);}
+}
+async function deleteWol(key){
+  const c=wolCache.find(x=>x.key===key);
+  if(!confirm('Удалить компьютер «'+(c?c.name:key)+'»?'))return;
+  const r=await fetch('/api/wol?key='+encodeURIComponent(key),{method:'DELETE'});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'Компьютер удалён':'Не удалось удалить: '+(res.error||r.status),r.ok);
+  if(r.ok){if(editingWolKey===key)resetWolForm();await loadWol();}
+}
+document.getElementById('wolCancelBtn').onclick=resetWolForm;
+document.getElementById('wolExportBtn').onclick=async()=>{
+  if(wolCache.length===0){msg('Список компьютеров пуст — экспортировать нечего',false);return;}
+  const r=await fetch('/api/wol');
+  if(!r.ok){msg('Не удалось экспортировать',false);return;}
+  const text=await r.text();
+  const blob=new Blob([text],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='wol-computers.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  msg('Компьютеры экспортированы');
+};
+document.getElementById('wolImportBtn').onclick=()=>{
+  document.getElementById('wolImportFile').click();
+};
+document.getElementById('wolImportFile').onchange=async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  let data;
+  try{data=JSON.parse(await file.text());}
+  catch(err){msg('Импорт не удался: неверный JSON-файл',false);e.target.value='';return;}
+  const list=Array.isArray(data)?data:(data&&Array.isArray(data.computers)?data.computers:null);
+  if(!list||list.length===0){
+    msg('Импорт не удался: ожидается непустой массив "computers"',false);e.target.value='';return;}
+  if(!confirm('Заменить все текущие компьютеры списком из '+list.length+' компьютеров?')){
+    e.target.value='';return;}
+  const r=await fetch('/api/wol',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({computers:list})});
+  const res=await r.json().catch(()=>({}));
+  if(r.ok){msg('Импортировано компьютеров: '+(res.count!==undefined?res.count:list.length));resetWolForm();await loadWol();}
+  else{msg('Импорт не удался: '+(res.error||r.status),false);}
+  e.target.value='';
+};
 load();
 loadStatus();
 setInterval(loadStatus,3000);
@@ -791,8 +971,8 @@ bool WebServer::Start(int port) {
     // ("Ringbuffer of AFE(FEED) is full"). Keep the Web UI below the audio
     // tasks; handlers still get CPU because they block on the network.
     config.task_priority = 2;
-    // Fourteen endpoints here plus the eight of the radio API, registered below.
-    config.max_uri_handlers = 22;
+    // Fourteen endpoints here, five for Wake-on-LAN and eight for the radio API.
+    config.max_uri_handlers = 27;
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the Web UI on port %d", port);
@@ -827,9 +1007,10 @@ bool WebServer::Start(int port) {
     for (const auto& route : routes) {
         AddHandler(route);
     }
-    // The radio tab ships with the device page, so its endpoints are registered
-    // here too instead of from every board that has a radio.
+    // The radio and computer tabs ship with the device page, so their endpoints
+    // are registered here too instead of from every board that has a radio.
     RadioWebApi::Register(*this);
+    WolWebApi::Register(*this);
 
     ESP_LOGI(TAG, "Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);
