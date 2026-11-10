@@ -236,14 +236,16 @@ void McpServer::AddCommonTools() {
     auto radio = Application::GetInstance().GetRadio();
     if (radio) {
         AddTool("self.radio.play_station",
-                "Play a radio station by name. Station names are in Russian; names/keywords are "
-                "matched case-insensitively (partial match also works). Use "
-                "self.radio.list_stations to list all stations.",
+                "Play a radio station by name or genre. Names and keywords are matched "
+                "case-insensitively (partial match also works); a genre such as «джаз» plays a "
+                "random station of that genre. Pass an empty `station_name` to play a random "
+                "station. Use self.radio.list_stations to list all stations.",
                 PropertyList({Property("station_name", kPropertyTypeString)}),
                 [radio](const PropertyList& properties) -> ReturnValue {
                     auto station_name = properties["station_name"].value<std::string>();
                     if (radio->PlayStation(station_name)) {
-                        return "Playing radio station: " + station_name;
+                        const std::string played = radio->GetCurrentStation();
+                        return "Playing radio station: " + (played.empty() ? station_name : played);
                     }
                     return std::string(
                         "Ошибка: станция не найдена. Используйте self.radio.list_stations для "
@@ -338,8 +340,8 @@ void McpServer::AddCommonTools() {
         AddTool("self.rss.read_latest",
                 "Read the latest news headlines from an RSS feed aloud. Fetches the feed from "
                 "the internet right now, so relay the returned headlines to the user. `feed` is "
-                "the feed name, alias or category as spoken by the user; leave it empty to use "
-                "the default feed. "
+                "the feed name, alias or category as spoken by the user; a category with several "
+                "feeds reads a random one of them. Leave it empty to use the default feed. "
                 "`count` is how many headlines to read (1-10).",
                 PropertyList({Property("feed", kPropertyTypeString, std::string("")),
                               Property("count", kPropertyTypeInteger, 5, 1, 10)}),

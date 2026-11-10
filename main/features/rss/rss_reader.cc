@@ -5,6 +5,7 @@
 #include "settings.h"
 
 #include <esp_log.h>
+#include <esp_random.h>
 
 #include <algorithm>
 #include <cctype>
@@ -504,21 +505,23 @@ std::string RssReader::ResolveFeedKeyLocked(const std::string& query) const {
             return key;
         }
     }
-    // A category name works when it points at exactly one feed ("спорт").
-    std::string category_key;
-    int category_matches = 0;
+    // A category name works too ("спорт"): one matching feed is taken as is,
+    // several feeds in the category mean a random one of them is read.
+    std::vector<std::string> category_keys;
     for (const auto& [key, feed] : feeds_) {
         if (feed.category.empty()) {
             continue;
         }
         const std::string category = ToLowerAscii(feed.category);
         if (category == needle || category.find(needle) != std::string::npos) {
-            category_key = key;
-            ++category_matches;
+            category_keys.push_back(key);
         }
     }
-    if (category_matches == 1) {
-        return category_key;
+    if (category_keys.size() == 1) {
+        return category_keys.front();
+    }
+    if (!category_keys.empty()) {
+        return category_keys[esp_random() % category_keys.size()];
     }
     return "";
 }

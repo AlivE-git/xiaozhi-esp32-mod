@@ -12,6 +12,7 @@
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_random.h>
 #include <esp_pthread.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -326,12 +327,14 @@ bool Esp32Radio::SaveStations() {
 }
 
 bool Esp32Radio::PlayStation(const std::string& station_name) {
-    ESP_LOGI(TAG, "Request to play radio station: %s", station_name.c_str());
+    const std::string query = TrimAscii(station_name);
+    ESP_LOGI(TAG, "Request to play radio station: %s", query.c_str());
 
-    // Convert input to lowercase for case-insensitive search. Only aliases and
-    // the name pick a station: keys are internal identities generated from the
-    // name, so they are never matched here.
-    std::string lower_input = ToLowerAscii(station_name);
+    // Convert input to lowercase for case-insensitive search. Aliases and the
+    // name pick one station, a genre picks a random one of its stations, and an
+    // empty query picks any station. Keys are internal identities generated
+    // from the name, so they are never matched here.
+    const std::string lower_input = ToLowerAscii(query);
 
     RadioStation found;
     std::string found_key;
@@ -358,12 +361,12 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
         }
 
         // Next, try to find by station display name (case insensitive partial match)
-        if (!found_station) {
+        if (!found_station && !lower_input.empty()) {
             for (const auto& station : radio_stations_) {
                 std::string lower_station_name = ToLowerAscii(station.second.name);
                 if (lower_station_name.find(lower_input) != std::string::npos ||
                     lower_input.find(lower_station_name) != std::string::npos) {
-                    ESP_LOGI(TAG, "Found station by display name: '%s' -> %s", station_name.c_str(),
+                    ESP_LOGI(TAG, "Found station by display name: '%s' -> %s", query.c_str(),
                              station.second.name.c_str());
                     found = station.second;
                     found_key = station.first;
@@ -373,10 +376,36 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
             }
         }
 
+        // Finally the genre: "джаз" plays a random jazz station, and an empty
+        // query plays a random station of any genre.
+        if (!found_station) {
+            std::vector<const std::pair<const std::string, RadioStation>*> candidates;
+            for (const auto& station : radio_stations_) {
+                if (lower_input.empty()) {
+                    candidates.push_back(&station);
+                    continue;
+                }
+                if (station.second.genre.empty()) {
+                    continue;
+                }
+                const std::string genre = ToLowerAscii(station.second.genre);
+                if (genre == lower_input || genre.find(lower_input) != std::string::npos) {
+                    candidates.push_back(&station);
+                }
+            }
+            if (!candidates.empty()) {
+                const auto* picked = candidates[esp_random() % candidates.size()];
+                found = picked->second;
+                found_key = picked->first;
+                found_station = true;
+                ESP_LOGI(TAG, "Picked '%s' out of %u matching stations", found.name.c_str(),
+                         static_cast<unsigned>(candidates.size()));
+            }
+        }
     }
 
     if (!found_station) {
-        ESP_LOGE(TAG, "Radio station not found: %s", station_name.c_str());
+        ESP_LOGE(TAG, "Radio station not found: %s", query.c_str());
         return false;
     }
 
