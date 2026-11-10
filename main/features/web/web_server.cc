@@ -77,11 +77,11 @@ body{background:#f1f4f8}
    <div class="row g-3">
     <div class="col-md-6">
      <label class="form-label" for="name">Название</label>
-     <input id="name" class="form-control" required autocomplete="off">
+     <input id="name" class="form-control" required autocomplete="off" maxlength="64">
     </div>
     <div class="col-md-3">
      <label class="form-label" for="genre">Жанр</label>
-     <input id="genre" class="form-control" autocomplete="off">
+     <input id="genre" class="form-control" autocomplete="off" maxlength="64">
     </div>
     <div class="col-md-3">
      <label class="form-label" for="volume">Громкость <span class="text-muted">(0.1–4.0)</span></label>
@@ -89,10 +89,10 @@ body{background:#f1f4f8}
     </div>
     <div class="col-12">
      <label class="form-label" for="url">Stream URL <span class="text-muted">(http/https)</span></label>
-     <input id="url" class="form-control" type="url" required autocomplete="off">
+     <input id="url" class="form-control" type="url" required autocomplete="off" maxlength="256">
     </div>
     <div class="col-12">
-     <label class="form-label" for="aliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую)</span></label>
+     <label class="form-label" for="aliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую, до 8 штук, каждый до 32 байт)</span></label>
      <input id="aliases" class="form-control" placeholder="маяк, mayak">
     </div>
     <div class="col-12 d-flex gap-2">
@@ -171,18 +171,18 @@ body{background:#f1f4f8}
    <div class="row g-3">
     <div class="col-md-12">
      <label class="form-label" for="feedName">Название <span class="text-muted">(как называть голосом)</span></label>
-     <input id="feedName" class="form-control" required autocomplete="off" placeholder="Лента">
+     <input id="feedName" class="form-control" required autocomplete="off" placeholder="Лента" maxlength="64">
     </div>
     <div class="col-12">
      <label class="form-label" for="feedUrl">Адрес ленты <span class="text-muted">(RSS 2.0 или Atom, http/https)</span></label>
-     <input id="feedUrl" class="form-control" type="url" required autocomplete="off" placeholder="https://lenta.ru/rss/news">
+     <input id="feedUrl" class="form-control" type="url" required autocomplete="off" placeholder="https://lenta.ru/rss/news" maxlength="256">
     </div>
     <div class="col-md-4">
      <label class="form-label" for="feedCategory">Категория <span class="text-muted">(необязательно)</span></label>
-     <input id="feedCategory" class="form-control" autocomplete="off" placeholder="новости">
+     <input id="feedCategory" class="form-control" autocomplete="off" placeholder="новости" maxlength="64">
     </div>
     <div class="col-md-8">
-     <label class="form-label" for="feedAliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую)</span></label>
+     <label class="form-label" for="feedAliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую, до 8 штук, каждый до 32 байт)</span></label>
      <input id="feedAliases" class="form-control" autocomplete="off" placeholder="лента, новости lenta">
     </div>
     <div class="col-12 d-flex gap-2">
@@ -298,7 +298,7 @@ body{background:#f1f4f8}
    <div class="row g-3">
     <div class="col-md-3">
      <label class="form-label" for="wolName">Название</label>
-     <input id="wolName" class="form-control" type="text" placeholder="Рабочий ПК" required autocomplete="off">
+     <input id="wolName" class="form-control" type="text" placeholder="Рабочий ПК" required autocomplete="off" maxlength="64">
     </div>
     <div class="col-md-3">
      <label class="form-label" for="wolMac">MAC-адрес</label>
@@ -354,6 +354,33 @@ function msg(t,ok){
   const el=document.getElementById('msg');
   el.textContent=t;
   el.className='alert '+(ok===false?'alert-danger':'alert-success');
+}
+// The firmware limits are in bytes, while HTML maxlength counts characters:
+// one Cyrillic letter costs two bytes, so a 64-byte field fits only 32 of them.
+const utf8Bytes=s=>new TextEncoder().encode(String(s==null?'':s)).length;
+function clampBytes(s,max){
+  const chars=Array.from(String(s==null?'':s));
+  let total=0;
+  for(let i=0;i<chars.length;i++){
+    total+=utf8Bytes(chars[i]);
+    if(total>max)return chars.slice(0,i).join('');
+  }
+  return chars.join('');
+}
+function capBytes(id,max){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.addEventListener('input',()=>{const v=clampBytes(el.value,max);if(v!==el.value)el.value=v;});
+}
+capBytes('name',64);capBytes('genre',64);capBytes('url',256);
+capBytes('feedName',64);capBytes('feedCategory',64);capBytes('feedUrl',256);
+capBytes('wolName',64);
+// Aliases are stored one by one, so the limit applies per item, not to the line.
+function aliasError(aliases){
+  if(aliases.length>8)return 'Слишком много алиасов: не больше 8';
+  const long=aliases.find(a=>utf8Bytes(a)>32);
+  if(long)return 'Алиас «'+long+'» длиннее 32 байт';
+  return '';
 }
 function isCurrent(s){return playback.playing&&playback.currentKey===s.key}
 function renderRows(){
@@ -438,6 +465,8 @@ document.getElementById('stationForm').onsubmit=async e=>{
     genre:document.getElementById('genre').value.trim(),
     volume:parseFloat(document.getElementById('volume').value)||1.0,
     aliases:document.getElementById('aliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
+  const aliasProblem=aliasError(body.aliases);
+  if(aliasProblem){msg(aliasProblem,false);return;}
   const url=editingKey?('/api/stations?key='+encodeURIComponent(editingKey)):'/api/stations';
   const r=await fetch(url,{method:editingKey?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const res=await r.json().catch(()=>({}));
@@ -447,7 +476,9 @@ document.getElementById('stationForm').onsubmit=async e=>{
 document.getElementById('exportBtn').onclick=async()=>{
   const r=await fetch('/api/stations');
   if(!r.ok){msg('Не удалось экспортировать',false);return;}
-  const text=await r.text();
+  let text;
+  try{text=JSON.stringify(JSON.parse(await r.text()),null,2);}
+  catch(err){msg('Не удалось экспортировать',false);return;}
   const blob=new Blob([text],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='radio-stations.json';a.click();
@@ -526,6 +557,8 @@ document.getElementById('feedForm').onsubmit=async e=>{
     url:document.getElementById('feedUrl').value.trim(),
     category:document.getElementById('feedCategory').value.trim(),
     aliases:document.getElementById('feedAliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
+  const aliasProblem=aliasError(body.aliases);
+  if(aliasProblem){msg(aliasProblem,false);return;}
   if(editingFeed)body.key=editingFeed;
   const r=await fetch('/api/rss',{method:editingFeed?'PUT':'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -852,7 +885,9 @@ document.getElementById('wolExportBtn').onclick=async()=>{
   if(wolCache.length===0){msg('Список компьютеров пуст — экспортировать нечего',false);return;}
   const r=await fetch('/api/wol');
   if(!r.ok){msg('Не удалось экспортировать',false);return;}
-  const text=await r.text();
+  let text;
+  try{text=JSON.stringify(JSON.parse(await r.text()),null,2);}
+  catch(err){msg('Не удалось экспортировать',false);return;}
   const blob=new Blob([text],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='wol-computers.json';a.click();

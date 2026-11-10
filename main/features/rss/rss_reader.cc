@@ -310,8 +310,11 @@ void NormalizeFeed(RssFeed* feed) {
     feed->name = Trim(feed->name);
     feed->url = Trim(feed->url);
     feed->category = Trim(feed->category);
-    if (feed->category.size() > 32) {
-        feed->category = TruncateUtf8(feed->category, 32);
+    // Bytes, not characters: 32 was only ~16 Cyrillic letters, so a category
+    // like "Технологии/Наука" was silently cut in half. Keep it in line with
+    // the radio genre and station name limits.
+    if (feed->category.size() > 64) {
+        feed->category = TruncateUtf8(feed->category, 64);
     }
     std::vector<std::string> aliases;
     for (const auto& raw : feed->aliases) {

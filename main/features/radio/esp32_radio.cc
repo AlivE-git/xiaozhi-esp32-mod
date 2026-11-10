@@ -141,7 +141,9 @@ bool IsValidStation(const RadioStation& station) {
     if (station.url.rfind("http://", 0) != 0 && station.url.rfind("https://", 0) != 0) {
         return false;
     }
-    if (station.url.size() > 256 || station.genre.size() > 32) {
+    // Limits are bytes: 32 was too tight for Cyrillic genres such as
+    // "Разговорное/Литература", so keep it in line with the name limit.
+    if (station.url.size() > 256 || station.genre.size() > 64) {
         return false;
     }
     return true;
@@ -157,12 +159,19 @@ RadioStation NormalizeStation(RadioStation station) {
     if (station.volume > 4.0f) {
         station.volume = 4.0f;
     }
+    // Same rule as the Web UI and RSS: eight aliases of at most 32 bytes, so one
+    // station cannot grow the NVS entry without bound.
     std::vector<std::string> aliases;
     for (const auto& alias : station.aliases) {
         std::string normalized = ToLowerAscii(TrimAscii(alias));
-        if (!normalized.empty() &&
-            std::find(aliases.begin(), aliases.end(), normalized) == aliases.end()) {
+        if (normalized.empty() || normalized.size() > 32) {
+            continue;
+        }
+        if (std::find(aliases.begin(), aliases.end(), normalized) == aliases.end()) {
             aliases.push_back(normalized);
+        }
+        if (aliases.size() >= 8) {
+            break;
         }
     }
     station.aliases = aliases;
@@ -269,19 +278,31 @@ bool Esp32Radio::SaveStations() {
     }
     for (const auto& [key, station] : stations) {
         CJsonUniquePtr item(cJSON_CreateObject());
-        CJsonUniquePtr aliases(cJSON_CreateArray());
-        if (item == nullptr || aliases == nullptr) {
+        if (item == nullptr) {
             return false;
         }
         cJSON_AddStringToObject(item.get(), "key", key.c_str());
         cJSON_AddStringToObject(item.get(), "name", station.name.c_str());
         cJSON_AddStringToObject(item.get(), "url", station.url.c_str());
-        cJSON_AddStringToObject(item.get(), "genre", station.genre.c_str());
-        cJSON_AddNumberToObject(item.get(), "volume", station.volume);
-        for (const auto& alias : station.aliases) {
-            cJSON_AddItemToArray(aliases.get(), cJSON_CreateString(alias.c_str()));
+        // Fields that equal their default are skipped: they cost NVS entries on
+        // every station and the loader restores the defaults (empty genre and
+        // aliases, volume 1.0) when the key is missing.
+        if (!station.genre.empty()) {
+            cJSON_AddStringToObject(item.get(), "genre", station.genre.c_str());
         }
-        cJSON_AddItemToObject(item.get(), "aliases", aliases.release());
+        if (station.volume != 1.0f) {
+            cJSON_AddNumberToObject(item.get(), "volume", station.volume);
+        }
+        if (!station.aliases.empty()) {
+            CJsonUniquePtr aliases(cJSON_CreateArray());
+            if (aliases == nullptr) {
+                return false;
+            }
+            for (const auto& alias : station.aliases) {
+                cJSON_AddItemToArray(aliases.get(), cJSON_CreateString(alias.c_str()));
+            }
+            cJSON_AddItemToObject(item.get(), "aliases", aliases.release());
+        }
         cJSON_AddItemToArray(array.get(), item.release());
     }
     cJSON_AddItemToObject(root.get(), "stations", array.release());

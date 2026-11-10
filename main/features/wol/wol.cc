@@ -190,6 +190,10 @@ bool SaveComputers(const std::vector<Computer>& computers, std::string& error) {
             error = "Укажите название компьютера";
             return false;
         }
+        if (normalized.name.size() > 64) {
+            error = "Название компьютера должно быть не длиннее 64 байт";
+            return false;
+        }
         std::string mac;
         if (!NormalizeMac(normalized.mac, mac)) {
             error = "MAC-адрес «" + normalized.name + "» должен быть в виде AA:BB:CC:DD:EE:FF";
