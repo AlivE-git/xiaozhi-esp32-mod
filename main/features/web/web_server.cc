@@ -359,7 +359,7 @@ function renderRows(){
     const eb=document.createElement('button');eb.className='btn btn-sm btn-outline-primary me-1';eb.textContent='✏️';
     eb.onclick=()=>startEdit(s);
     const db=document.createElement('button');db.className='btn btn-sm btn-outline-danger';db.textContent='🗑';
-    db.onclick=async()=>{if(!confirm('Удалить станцию '+s.key+'?'))return;
+    db.onclick=async()=>{if(!confirm('Удалить станцию «'+s.name+'»?'))return;
       const rr=await fetch('/api/stations?key='+encodeURIComponent(s.key),{method:'DELETE'});
       msg(rr.ok?'Станция удалена':'Не удалось удалить',rr.ok);load();};
     td.append(pb,eb,db);tr.appendChild(td);tb.appendChild(tr);});
@@ -473,7 +473,7 @@ function renderFeedRows(){
     const eb=document.createElement('button');eb.className='btn btn-sm btn-outline-primary me-1';eb.textContent='✏️';
     eb.onclick=()=>startFeedEdit(f);
     const db=document.createElement('button');db.className='btn btn-sm btn-outline-danger';db.textContent='🗑';
-    db.onclick=async()=>{if(!confirm('Удалить ленту '+f.name+'?'))return;
+    db.onclick=async()=>{if(!confirm('Удалить ленту «'+f.name+'»?'))return;
       const rr=await fetch('/api/rss?key='+encodeURIComponent(f.key),{method:'DELETE'});
       msg(rr.ok?'Лента удалена':'Не удалось удалить ленту',rr.ok);loadRss();};
     td.append(eb,db);tr.appendChild(td);tb.appendChild(tr);});
