@@ -4,7 +4,9 @@
 #include <expected>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <type_traits>
 #include <variant>
@@ -435,6 +437,25 @@ public:
     // firmware should hardcode a number for. The counts are enough - whoever adds a tool can
     // see what the total became.
     void LogToolInventory() const;
+
+    // One registered skill: its name, its description and whether it only reads
+    // information. A read-only skill leaves the voice session open after it
+    // returns ("курс доллара" and then a follow-up question); every other skill
+    // ends it, so the device answers and goes back to standby. The list is a
+    // user setting edited in the Web UI "Система" tab and kept in NVS.
+    struct ToolInfo {
+        std::string name;
+        std::string description;
+        bool read_only = false;
+    };
+    // Snapshot for the Web UI. Skills are registered once at startup, before the
+    // Web UI starts, so the list does not change while it is being read.
+    std::vector<ToolInfo> GetToolInfos() const;
+    // Replaces the read-only list and persists it. Unknown skill names are
+    // dropped; returns false when NVS rejects the write.
+    bool SetReadOnlyTools(const std::vector<std::string>& names);
+    bool IsReadOnlyTool(const std::string& name) const;
+
     void AddTool(std::unique_ptr<McpTool> tool);
     void AddTool(const std::string& name, const std::string& description,
                  const PropertyList& properties, ToolCallback callback);
@@ -460,7 +481,11 @@ private:
     void DoToolCall(int id, const std::string& tool_name, const cJSON* tool_arguments,
                     ResponseSender response_sender);
 
+    void LoadReadOnlyTools();
+
     std::vector<std::unique_ptr<McpTool>> tools_;
+    mutable std::mutex read_only_mutex_;
+    std::set<std::string> read_only_tools_;
 };
 
 #endif  // MCP_SERVER_H

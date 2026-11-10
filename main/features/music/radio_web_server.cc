@@ -7,6 +7,7 @@
 #include "features/joke/joke_reader.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
+#include "mcp_server.h"
 
 #include <esp_log.h>
 
@@ -64,6 +65,7 @@ body{background:#f1f4f8}
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="joke">😄 Анекдоты</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
 </ul>
 <div class="tab-content">
 <div class="tab-pane active" id="pane-radio" role="tabpanel">
@@ -236,6 +238,26 @@ body{background:#f1f4f8}
   </div>
   <div id="jokeText" class="border rounded p-3 bg-light" style="white-space:pre-wrap">Нажмите «Получить анекдот», чтобы получить случайный анекдот.</div>
   <div class="text-muted small mt-3">Случайные анекдоты с rzhunemogu.ru (категория «Анекдоты»). Голосом можно попросить «расскажи анекдот».</div>
+ </div>
+</section>
+</div>
+<div class="tab-pane" id="pane-system" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header">⚙ Система — навыки</div>
+ <div class="card-body">
+  <p class="text-muted small">Отмеченные навыки только читают информацию: после них устройство продолжает слушать и можно сразу задать следующий вопрос. Неотмеченные навыки завершают голосовую сессию — устройство отвечает и уходит в ожидание.</p>
+  <div class="table-responsive">
+   <table class="table table-hover align-middle mb-0">
+    <thead class="table-dark"><tr><th style="width:3rem">✔</th><th>Навык</th><th>Описание</th></tr></thead>
+    <tbody id="toolRows"></tbody>
+   </table>
+  </div>
+  <div class="d-flex flex-wrap gap-2 align-items-center mt-3">
+   <button class="btn btn-primary" type="button" id="toolsSaveBtn">💾 Сохранить</button>
+   <button class="btn btn-outline-secondary" type="button" id="toolsReloadBtn">↻ Обновить</button>
+   <span class="text-muted small">Список сохраняется в памяти устройства и применяется сразу, перезагрузка не нужна.</span>
+  </div>
  </div>
 </section>
 </div>
@@ -480,6 +502,7 @@ function showTab(name){
   document.querySelectorAll('.tab-content > .tab-pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='timer')loadTimer();
   if(name==='news')loadRss();
+  if(name==='system')loadTools();
 }
 document.querySelectorAll('#mainTabs .nav-link').forEach(b=>{b.onclick=()=>showTab(b.dataset.tab)});
 function paintTimer(t){
@@ -558,6 +581,51 @@ async function copyJoke(){
 }
 document.getElementById('jokeBtn').onclick=loadJoke;
 document.getElementById('jokeCopyBtn').onclick=copyJoke;
+let toolsCache=[];
+function renderToolRows(){
+  const tb=document.getElementById('toolRows');tb.innerHTML='';
+  if(toolsCache.length===0){
+    tb.innerHTML='<tr><td colspan="3" class="text-center text-muted py-4">Навыки не загрузились. Нажмите «Обновить».</td></tr>';
+    return;}
+  toolsCache.forEach(t=>{
+    const tr=document.createElement('tr');
+    const td0=document.createElement('td');
+    const cb=document.createElement('input');
+    cb.type='checkbox';cb.className='form-check-input';cb.checked=!!t.read_only;cb.dataset.name=t.name;
+    cb.title='Не завершать голосовую сессию после этого навыка';
+    td0.appendChild(cb);
+    const tdName=document.createElement('td');
+    tdName.innerHTML='<code>'+esc(t.name)+'</code>';
+    const tdDesc=document.createElement('td');tdDesc.className='small text-muted';
+    const desc=t.description||'';
+    tdDesc.textContent=desc.length>180?desc.slice(0,180)+'…':desc;
+    tdDesc.title=desc;
+    tr.append(td0,tdName,tdDesc);
+    tb.appendChild(tr);});
+}
+async function loadTools(){
+  try{
+    const r=await fetch('/api/system');
+    if(!r.ok){msg('Не удалось получить список навыков',false);return;}
+    const data=await r.json();
+    toolsCache=data.tools||[];
+    renderToolRows();
+  }catch(e){msg('Не удалось получить список навыков: устройство недоступно',false);}
+}
+async function saveTools(){
+  const btn=document.getElementById('toolsSaveBtn');
+  btn.disabled=true;
+  const read_only=[...document.querySelectorAll('#toolRows input[type=checkbox]')]
+    .filter(cb=>cb.checked).map(cb=>cb.dataset.name);
+  const r=await fetch('/api/system',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({read_only:read_only})});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'Настройки навыков сохранены':'Не удалось сохранить: '+(res.error||r.status),r.ok);
+  btn.disabled=false;
+  if(r.ok)await loadTools();
+}
+document.getElementById('toolsSaveBtn').onclick=saveTools;
+document.getElementById('toolsReloadBtn').onclick=loadTools;
 load();
 loadStatus();
 setInterval(loadStatus,3000);
@@ -707,8 +775,8 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     // ("Ringbuffer of AFE(FEED) is full"). Keep the Web UI below the audio
     // tasks; handlers still get CPU because they block on the network.
     config.task_priority = 2;
-    // We register 17 handlers; the default limit (8) is not enough.
-    config.max_uri_handlers = 17;
+    // We register 19 handlers; the default limit (8) is not enough.
+    config.max_uri_handlers = 19;
 
     httpd_uri_t page_uri = {
         .uri = "/",
@@ -792,6 +860,15 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
         .handler = JokeHandler,
         .user_ctx = nullptr,
     };
+    // GET lists the registered skills, POST replaces the read-only list.
+    httpd_uri_t system_uri = {
+        .uri = "/api/system",
+        .method = HTTP_GET,
+        .handler = SystemHandler,
+        .user_ctx = nullptr,
+    };
+    httpd_uri_t system_post_uri = system_uri;
+    system_post_uri.method = HTTP_POST;
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
@@ -820,6 +897,8 @@ bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
     register_uri(&rss_put_uri);
     register_uri(&rss_delete_uri);
     register_uri(&joke_uri);
+    register_uri(&system_uri);
+    register_uri(&system_post_uri);
     ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);
     return true;
@@ -922,6 +1001,13 @@ esp_err_t RadioWebServer::JokeHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     return instance_->HandleJoke(req);
+}
+
+esp_err_t RadioWebServer::SystemHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleSystem(req);
 }
 
 esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
@@ -1235,6 +1321,66 @@ std::string RadioWebServer::FeedsJson() const {
 
 esp_err_t RadioWebServer::HandleRss(httpd_req_t* req) {
     return SendJson(req, 200, FeedsJson());
+}
+
+std::string RadioWebServer::ToolsJson() const {
+    CJsonUniquePtr root(cJSON_CreateObject());
+    CJsonUniquePtr array(cJSON_CreateArray());
+    if (root == nullptr || array == nullptr) {
+        return "{}";
+    }
+    for (const auto& tool : McpServer::GetInstance().GetToolInfos()) {
+        CJsonUniquePtr item(cJSON_CreateObject());
+        if (item == nullptr) {
+            continue;
+        }
+        cJSON_AddStringToObject(item.get(), "name", tool.name.c_str());
+        cJSON_AddStringToObject(item.get(), "description", tool.description.c_str());
+        cJSON_AddBoolToObject(item.get(), "read_only", tool.read_only);
+        cJSON_AddItemToArray(array.get(), item.release());
+    }
+    cJSON_AddItemToObject(root.get(), "tools", array.release());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return text != nullptr ? text.get() : "{}";
+}
+
+esp_err_t RadioWebServer::HandleSystem(httpd_req_t* req) {
+    if (req->method == HTTP_GET) {
+        return SendJson(req, 200, ToolsJson());
+    }
+    // POST carries {"read_only":["self.get_device_status", ...]}: the full list,
+    // so skills the user unchecked are missing from it.
+    if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
+        return SendJson(req, 400, ErrorJson("Invalid request body size"));
+    }
+    std::string body(req->content_len, '\0');
+    size_t received = 0;
+    while (received < body.size()) {
+        int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
+        if (ret <= 0) {
+            return SendJson(req, 400, ErrorJson("Failed to read request body"));
+        }
+        received += static_cast<size_t>(ret);
+    }
+
+    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
+    cJSON* read_only = root != nullptr ? cJSON_GetObjectItem(root.get(), "read_only") : nullptr;
+    if (!cJSON_IsArray(read_only)) {
+        return SendJson(req, 400, ErrorJson("Expected a \"read_only\" array"));
+    }
+    std::vector<std::string> names;
+    cJSON* name = nullptr;
+    cJSON_ArrayForEach(name, read_only) {
+        if (cJSON_IsString(name)) {
+            names.emplace_back(name->valuestring);
+        }
+    }
+    ESP_LOGI(TAG, "Save read-only skill list: %d skills", static_cast<int>(names.size()));
+    if (!McpServer::GetInstance().SetReadOnlyTools(names)) {
+        ESP_LOGE(TAG, "Save read-only skill list: failed to persist it to NVS");
+        return SendJson(req, 500, ErrorJson("Failed to save the skill list"));
+    }
+    return SendJson(req, 200, "{\"ok\":true}");
 }
 
 esp_err_t RadioWebServer::HandleJoke(httpd_req_t* req) {

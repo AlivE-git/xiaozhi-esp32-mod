@@ -28,21 +28,114 @@
 
 namespace {
 
-// Tools that only read or fetch information. They must not end the voice session,
-// because the user usually asks a follow-up question right after them.
-bool IsReadOnlyTool(const std::string& name) {
-    for (const char* read_only : {"self.get_device_status", "self.radio.get_stations",
-                                 "self.timer.get_remaining", "self.rss.list_feeds"}) {
-        if (name == read_only) {
-            return true;
+// The read-only skill list is a user setting: the Web UI "Система" tab writes it and
+// it decides whether a finished skill ends the voice session.
+constexpr const char* kReadOnlyNamespace = "mcp";
+constexpr const char* kReadOnlyKey = "read_only";
+
+// Used until the user saves the list from the Web UI.
+const char* const kDefaultReadOnlyTools[] = {"self.get_device_status", "self.radio.get_stations",
+                                            "self.timer.get_remaining", "self.rss.list_feeds"};
+
+std::set<std::string> DefaultReadOnlyTools() {
+    std::set<std::string> names;
+    for (const char* name : kDefaultReadOnlyTools) {
+        names.emplace(name);
+    }
+    return names;
+}
+
+// Stored as {"tools":[...]}. An empty list still has to be distinguishable from
+// an unset key, otherwise unchecking every skill would bring the defaults back.
+bool ParseReadOnlyTools(const std::string& saved, std::set<std::string>* names) {
+    CJsonUniquePtr root(cJSON_Parse(saved.c_str()));
+    if (root == nullptr) {
+        return false;
+    }
+    cJSON* tools = cJSON_GetObjectItem(root.get(), "tools");
+    if (!cJSON_IsArray(tools)) {
+        return false;
+    }
+    cJSON* tool = nullptr;
+    cJSON_ArrayForEach(tool, tools) {
+        if (cJSON_IsString(tool)) {
+            names->emplace(tool->valuestring);
         }
     }
-    return false;
+    return true;
+}
+
+std::string ReadOnlyToolsJson(const std::set<std::string>& names) {
+    CJsonUniquePtr root(cJSON_CreateObject());
+    CJsonUniquePtr tools(cJSON_CreateArray());
+    if (root == nullptr || tools == nullptr) {
+        return "";
+    }
+    for (const auto& name : names) {
+        cJSON_AddItemToArray(tools.get(), cJSON_CreateString(name.c_str()));
+    }
+    cJSON_AddItemToObject(root.get(), "tools", tools.release());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return text != nullptr ? text.get() : "";
 }
 
 }  // namespace
 
-McpServer::McpServer() {}
+McpServer::McpServer() { LoadReadOnlyTools(); }
+
+void McpServer::LoadReadOnlyTools() {
+    Settings settings(kReadOnlyNamespace);
+    const std::string saved = settings.GetString(kReadOnlyKey);
+    std::set<std::string> names;
+    if (saved.empty() || !ParseReadOnlyTools(saved, &names)) {
+        if (!saved.empty()) {
+            ESP_LOGW(TAG, "Saved read-only skill list is not valid JSON, using defaults");
+        }
+        names = DefaultReadOnlyTools();
+    }
+    std::lock_guard<std::mutex> lock(read_only_mutex_);
+    read_only_tools_ = std::move(names);
+    ESP_LOGI(TAG, "Read-only skills: %d", static_cast<int>(read_only_tools_.size()));
+}
+
+std::vector<McpServer::ToolInfo> McpServer::GetToolInfos() const {
+    std::lock_guard<std::mutex> lock(read_only_mutex_);
+    std::vector<ToolInfo> infos;
+    infos.reserve(tools_.size());
+    for (const auto& tool : tools_) {
+        infos.push_back(
+            ToolInfo{tool->name(), tool->description(), read_only_tools_.count(tool->name()) > 0});
+    }
+    return infos;
+}
+
+bool McpServer::IsReadOnlyTool(const std::string& name) const {
+    std::lock_guard<std::mutex> lock(read_only_mutex_);
+    return read_only_tools_.count(name) > 0;
+}
+
+bool McpServer::SetReadOnlyTools(const std::vector<std::string>& names) {
+    std::set<std::string> next;
+    for (const auto& name : names) {
+        for (const auto& tool : tools_) {
+            if (tool->name() == name) {
+                next.emplace(name);
+                break;
+            }
+        }
+    }
+    const std::string json = ReadOnlyToolsJson(next);
+    // Writing needs the namespace opened read-write; a read-only handle makes
+    // SetString fail.
+    Settings settings(kReadOnlyNamespace, true);
+    if (json.empty() || !settings.SetString(kReadOnlyKey, json)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(read_only_mutex_);
+    read_only_tools_ = std::move(next);
+    ESP_LOGI(TAG, "Saved %d read-only skills", static_cast<int>(read_only_tools_.size()));
+    return true;
+}
 
 McpServer::~McpServer() = default;
 
@@ -819,7 +912,7 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
         // consumed by the TTS "stop" handler in Application.
         auto& application = Application::GetInstance();
         auto state = application.GetDeviceState();
-        if (!IsReadOnlyTool(tool->name()) &&
+        if (!this->IsReadOnlyTool(tool->name()) &&
             (state == kDeviceStateListening || state == kDeviceStateSpeaking)) {
             application.RequestIdleAfterSpeaking();
         }

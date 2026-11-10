@@ -31,6 +31,8 @@ class RssReader;
 //        PUT    /api/rss      - edit a feed by key
 //        DELETE /api/rss?key=KEY - delete a feed
 //        GET    /api/joke     - {joke} with a random joke from rzhunemogu.ru
+//        GET    /api/system   - every registered skill with its read_only flag
+//        POST   /api/system   - replace the read-only skill list ({"read_only":[...]})
 class RadioWebServer {
 public:
     RadioWebServer();
@@ -59,6 +61,7 @@ private:
     static esp_err_t RssSaveHandler(httpd_req_t* req);
     static esp_err_t RssDeleteHandler(httpd_req_t* req);
     static esp_err_t JokeHandler(httpd_req_t* req);
+    static esp_err_t SystemHandler(httpd_req_t* req);
 
     esp_err_t HandlePage(httpd_req_t* req);
     esp_err_t HandleStations(httpd_req_t* req);
@@ -73,9 +76,11 @@ private:
     esp_err_t HandleRssSave(httpd_req_t* req);
     esp_err_t HandleRssDelete(httpd_req_t* req);
     esp_err_t HandleJoke(httpd_req_t* req);
+    esp_err_t HandleSystem(httpd_req_t* req);
 
     std::string StationsJson() const;
     std::string FeedsJson() const;
+    std::string ToolsJson() const;
     esp_err_t SendJson(httpd_req_t* req, int status, const std::string& body);
 };
 
