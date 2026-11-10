@@ -1,10 +1,11 @@
-#include "radio_web_server.h"
+#include "web_server.h"
 
 #include "application.h"
 #include "board.h"
 #include "cjson_utils.h"
-#include "esp32_radio.h"
+#include "features/currency/currency_converter.h"
 #include "features/joke/joke_reader.h"
+#include "features/radio/radio_web_api.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
 #include "mcp_server.h"
@@ -16,17 +17,11 @@
 #include <string>
 #include <vector>
 
-#define TAG "RadioWeb"
+#define TAG "WebServer"
 
 namespace {
 
-// Large enough for one station and for a full imported station list.
-constexpr size_t kMaxBodySize = 16384;
-
-// Compact station management page. The form fields map 1:1 to the JSON API:
-// key, name, url, description, genre, volume and aliases ("Keywords used as
-// extra aliases", comma separated).
-const char kPageHtml[] = "<!-- radio web ui build " __DATE__ " " __TIME__ " -->\n" R"HTML(<!DOCTYPE html>
+const char kPageHtml[] = "<!-- device web ui build " __DATE__ " " __TIME__ " -->\n" R"HTML(<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>XiaoZhi — устройство</title>
@@ -63,8 +58,8 @@ body{background:#f1f4f8}
 <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
  <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-tab="radio">📻 Радио</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
- <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="joke">😄 Анекдоты</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="skills">🧠 Навыки</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
 </ul>
 <div class="tab-content">
@@ -228,23 +223,10 @@ body{background:#f1f4f8}
 </section>
 </div>
 
-<div class="tab-pane" id="pane-joke" role="tabpanel">
-<section class="card mb-4">
- <div class="card-header">😄 Случайный анекдот</div>
- <div class="card-body">
-  <div class="d-flex flex-wrap gap-2 mb-3">
-   <button class="btn btn-primary" type="button" id="jokeBtn">🎲 Получить анекдот</button>
-   <button class="btn btn-outline-secondary" type="button" id="jokeCopyBtn">📋 Копировать</button>
-  </div>
-  <div id="jokeText" class="border rounded p-3 bg-light" style="white-space:pre-wrap">Нажмите «Получить анекдот», чтобы получить случайный анекдот.</div>
-  <div class="text-muted small mt-3">Случайные анекдоты с rzhunemogu.ru (категория «Анекдоты»). Голосом можно попросить «расскажи анекдот».</div>
- </div>
-</section>
-</div>
-<div class="tab-pane" id="pane-system" role="tabpanel">
+<div class="tab-pane" id="pane-skills" role="tabpanel">
 
 <section class="card mb-4">
- <div class="card-header">⚙ Система — навыки</div>
+ <div class="card-header">🧠 Навыки</div>
  <div class="card-body">
   <p class="text-muted small">Отмеченные навыки только читают информацию: после них устройство продолжает слушать и можно сразу задать следующий вопрос. Неотмеченные навыки завершают голосовую сессию — устройство отвечает и уходит в ожидание.</p>
   <div class="table-responsive">
@@ -258,6 +240,37 @@ body{background:#f1f4f8}
    <button class="btn btn-outline-secondary" type="button" id="toolsReloadBtn">↻ Обновить</button>
    <span class="text-muted small">Список сохраняется в памяти устройства и применяется сразу, перезагрузка не нужна.</span>
   </div>
+ </div>
+</section>
+</div>
+
+<div class="tab-pane" id="pane-system" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header">🔊 Громкость</div>
+ <div class="card-body">
+  <label class="form-label" for="volumeSlider">Громкость колонки <span id="volumeValue" class="badge text-bg-secondary ms-1">—</span></label>
+  <input id="volumeSlider" type="range" class="form-range" min="0" max="100" step="1" value="70">
+  <div class="text-muted small">Громкость меняется сразу, кнопка «Сохранить» не нужна.</div>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">🩺 Доступность сервисов</div>
+ <div class="card-body">
+  <div class="d-flex flex-wrap gap-2">
+   <button class="btn btn-outline-primary" type="button" id="checkJokeBtn">😂 Сервис анекдотов</button>
+   <button class="btn btn-outline-primary" type="button" id="checkCurrencyBtn">💱 Курс валют</button>
+  </div>
+  <div class="text-muted small mt-3">Кнопка реально запрашивает сервис с устройства и показывает, отвечает ли он.</div>
+ </div>
+</section>
+
+<section class="card">
+ <div class="card-header">⚙ Устройство</div>
+ <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+  <button class="btn btn-outline-danger" type="button" id="rebootBtn">🔄 Перезагрузить</button>
+  <span class="text-muted small">Настройки в памяти устройства и в NVS сохраняются.</span>
  </div>
 </section>
 </div>
@@ -502,7 +515,8 @@ function showTab(name){
   document.querySelectorAll('.tab-content > .tab-pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='timer')loadTimer();
   if(name==='news')loadRss();
-  if(name==='system')loadTools();
+  if(name==='skills')loadTools();
+  if(name==='system')loadSystem();
 }
 document.querySelectorAll('#mainTabs .nav-link').forEach(b=>{b.onclick=()=>showTab(b.dataset.tab)});
 function paintTimer(t){
@@ -546,41 +560,6 @@ document.getElementById('timerForm').onsubmit=e=>{
   if(total<1||total>86400){msg('Укажите длительность от 1 секунды до 24 часов',false);return;}
   setTimer(total);
 };
-async function loadJoke(){
-  const btn=document.getElementById('jokeBtn');
-  const box=document.getElementById('jokeText');
-  btn.disabled=true;
-  box.textContent='Загружаю анекдот…';
-  try{
-    const r=await fetch('/api/joke');
-    const data=await r.json().catch(()=>({}));
-    box.textContent=(r.ok&&data.joke)?data.joke:'Не удалось получить анекдот: '+(data.error||('HTTP '+r.status));
-  }catch(e){
-    box.textContent='Не удалось получить анекдот: устройство недоступно';
-  }finally{
-    btn.disabled=false;
-  }
-}
-async function copyJoke(){
-  const text=document.getElementById('jokeText').textContent;
-  try{
-    if(navigator.clipboard&&window.isSecureContext){
-      await navigator.clipboard.writeText(text);
-    }else{
-      const ta=document.createElement('textarea');
-      ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
-      document.body.appendChild(ta);ta.select();
-      const ok=document.execCommand('copy');
-      document.body.removeChild(ta);
-      if(!ok)throw new Error('copy failed');
-    }
-    msg('Анекдот скопирован');
-  }catch(e){
-    msg('Не удалось скопировать анекдот',false);
-  }
-}
-document.getElementById('jokeBtn').onclick=loadJoke;
-document.getElementById('jokeCopyBtn').onclick=copyJoke;
 let toolsCache=[];
 function renderToolRows(){
   const tb=document.getElementById('toolRows');tb.innerHTML='';
@@ -605,7 +584,7 @@ function renderToolRows(){
 }
 async function loadTools(){
   try{
-    const r=await fetch('/api/system');
+    const r=await fetch('/api/skills');
     if(!r.ok){msg('Не удалось получить список навыков',false);return;}
     const data=await r.json();
     toolsCache=data.tools||[];
@@ -617,7 +596,7 @@ async function saveTools(){
   btn.disabled=true;
   const read_only=[...document.querySelectorAll('#toolRows input[type=checkbox]')]
     .filter(cb=>cb.checked).map(cb=>cb.dataset.name);
-  const r=await fetch('/api/system',{method:'POST',headers:{'Content-Type':'application/json'},
+  const r=await fetch('/api/skills',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({read_only:read_only})});
   const res=await r.json().catch(()=>({}));
   msg(r.ok?'Настройки навыков сохранены':'Не удалось сохранить: '+(res.error||r.status),r.ok);
@@ -626,12 +605,54 @@ async function saveTools(){
 }
 document.getElementById('toolsSaveBtn').onclick=saveTools;
 document.getElementById('toolsReloadBtn').onclick=loadTools;
+async function loadSystem(){
+  try{
+    const r=await fetch('/api/system');
+    if(!r.ok)return;
+    const data=await r.json();
+    const slider=document.getElementById('volumeSlider');
+    if(typeof data.volume==='number')slider.value=data.volume;
+    document.getElementById('volumeValue').textContent=slider.value;
+  }catch(e){/* device unreachable; keep last state */}
+}
+async function saveVolume(value){
+  const r=await fetch('/api/system',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({volume:value})});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'Громкость: '+value:'Не удалось изменить громкость: '+(res.error||r.status),r.ok);
+}
+async function checkService(service,btn){
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/system/check?service='+service);
+    const data=await r.json().catch(()=>({}));
+    msg(r.ok?'Сервис доступен: '+(data.service||service):'Сервис недоступен: '+(data.error||('HTTP '+r.status)),r.ok);
+  }catch(e){msg('Не удалось проверить сервис: устройство недоступно',false);}
+  finally{btn.disabled=false;}
+}
+async function rebootDevice(){
+  if(!confirm('Перезагрузить устройство?'))return;
+  const btn=document.getElementById('rebootBtn');
+  btn.disabled=true;
+  const r=await fetch('/api/system/reboot',{method:'POST'});
+  const res=await r.json().catch(()=>({}));
+  msg(r.ok?'Устройство перезагружается…':'Не удалось перезагрузить: '+(res.error||r.status),r.ok);
+}
+document.getElementById('volumeSlider').oninput=e=>{
+  document.getElementById('volumeValue').textContent=e.target.value;
+};
+document.getElementById('volumeSlider').onchange=e=>saveVolume(parseInt(e.target.value,10));
+document.getElementById('checkJokeBtn').onclick=e=>checkService('joke',e.currentTarget);
+document.getElementById('checkCurrencyBtn').onclick=e=>checkService('currency',e.currentTarget);
+document.getElementById('rebootBtn').onclick=rebootDevice;
 load();
 loadStatus();
 setInterval(loadStatus,3000);
 setInterval(()=>{if(document.getElementById('pane-timer').classList.contains('active'))loadTimer();},1000);
 </script></body></html>)HTML";
 
+// "маяк, mayak" -> {"маяк", "mayak"}. The Web UI sends lists as comma separated
+// form values in some places and as JSON arrays in others.
 std::vector<std::string> SplitAliases(const std::string& value) {
     std::vector<std::string> aliases;
     size_t start = 0;
@@ -652,44 +673,6 @@ std::vector<std::string> SplitAliases(const std::string& value) {
         start = comma + 1;
     }
     return aliases;
-}
-
-bool StationFromJson(cJSON* root, std::string* key, RadioStation* station) {
-    if (root == nullptr || key == nullptr || station == nullptr || !cJSON_IsObject(root)) {
-        return false;
-    }
-    cJSON* key_item = cJSON_GetObjectItem(root, "key");
-    cJSON* name = cJSON_GetObjectItem(root, "name");
-    cJSON* url = cJSON_GetObjectItem(root, "url");
-    if (!cJSON_IsString(key_item) || !cJSON_IsString(name) || !cJSON_IsString(url)) {
-        return false;
-    }
-    *key = key_item->valuestring;
-    station->name = name->valuestring;
-    station->url = url->valuestring;
-    if (cJSON* description = cJSON_GetObjectItem(root, "description"); cJSON_IsString(description)) {
-        station->description = description->valuestring;
-    }
-    if (cJSON* genre = cJSON_GetObjectItem(root, "genre"); cJSON_IsString(genre)) {
-        station->genre = genre->valuestring;
-    }
-    if (cJSON* volume = cJSON_GetObjectItem(root, "volume"); cJSON_IsNumber(volume)) {
-        station->volume = static_cast<float>(volume->valuedouble);
-    }
-    // Aliases may arrive as a JSON array (Web UI) or a comma separated string.
-    if (cJSON* aliases = cJSON_GetObjectItem(root, "aliases")) {
-        if (cJSON_IsArray(aliases)) {
-            cJSON* alias = nullptr;
-            cJSON_ArrayForEach(alias, aliases) {
-                if (cJSON_IsString(alias)) {
-                    station->aliases.emplace_back(alias->valuestring);
-                }
-            }
-        } else if (cJSON_IsString(aliases)) {
-            station->aliases = SplitAliases(aliases->valuestring);
-        }
-    }
-    return true;
 }
 
 bool FeedFromJson(cJSON* root, RssFeed* feed) {
@@ -722,6 +705,10 @@ bool FeedFromJson(cJSON* root, RssFeed* feed) {
     return true;
 }
 
+}  // namespace
+
+namespace web {
+
 std::string ErrorJson(const std::string& message) {
     CJsonUniquePtr root(cJSON_CreateObject());
     if (root == nullptr) {
@@ -732,290 +719,7 @@ std::string ErrorJson(const std::string& message) {
     return text != nullptr ? text.get() : "{}";
 }
 
-}  // namespace
-
-RadioWebServer* RadioWebServer::instance_ = nullptr;
-
-RadioWebServer::RadioWebServer() { instance_ = this; }
-
-RadioWebServer::~RadioWebServer() {
-    Stop();
-    if (instance_ == this) {
-        instance_ = nullptr;
-    }
-}
-
-bool RadioWebServer::Start(Esp32Radio* radio, RssReader* rss, int port) {
-    if (server_handle_ != nullptr) {
-        return true;
-    }
-    if (radio == nullptr) {
-        ESP_LOGE(TAG, "Radio Web UI needs a radio instance");
-        return false;
-    }
-    radio_ = radio;
-    rss_ = rss;
-
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = port;
-    // The whole device has only CONFIG_LWIP_MAX_SOCKETS (10) sockets, and the
-    // MQTT/UDP audio channel, the radio stream and OTA all need some. Reserving
-    // 7 for the Web UI left nothing for voice input, which then failed with
-    // "Failed to create socket" (ENFILE) after browsing the UI. Keep a few
-    // sessions and recycle the oldest instead of refusing new connections.
-    config.max_open_sockets = 3;
-    config.lru_purge_enable = true;
-    config.ctrl_port = 32770;
-    // The joke tab fetches an HTTPS API from this task, and the TLS handshake
-    // does not fit in the default 4 KB stack.
-    config.stack_size = 12 * 1024;
-    // The TLS handshake is CPU-heavy. httpd defaults to priority 5, above the
-    // AFE fetch task (priority 3), so a request starved the audio pipeline: the
-    // codec task kept feeding while nothing drained the AFE ring buffer
-    // ("Ringbuffer of AFE(FEED) is full"). Keep the Web UI below the audio
-    // tasks; handlers still get CPU because they block on the network.
-    config.task_priority = 2;
-    // We register 19 handlers; the default limit (8) is not enough.
-    config.max_uri_handlers = 19;
-
-    httpd_uri_t page_uri = {
-        .uri = "/",
-        .method = HTTP_GET,
-        .handler = PageHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t stations_uri = {
-        .uri = "/api/stations",
-        .method = HTTP_GET,
-        .handler = StationsHandler,
-        .user_ctx = nullptr,
-    };
-    // Same handler serves POST/PUT/DELETE; registered once per method.
-    httpd_uri_t stations_post_uri = stations_uri;
-    stations_post_uri.method = HTTP_POST;
-    httpd_uri_t stations_put_uri = stations_uri;
-    stations_put_uri.method = HTTP_PUT;
-    httpd_uri_t stations_delete_uri = stations_uri;
-    stations_delete_uri.method = HTTP_DELETE;
-    httpd_uri_t import_uri = {
-        .uri = "/api/import",
-        .method = HTTP_POST,
-        .handler = ImportHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t status_uri = {
-        .uri = "/api/status",
-        .method = HTTP_GET,
-        .handler = StatusHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t play_uri = {
-        .uri = "/api/play",
-        .method = HTTP_POST,
-        .handler = PlayHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t stop_uri = {
-        .uri = "/api/stop",
-        .method = HTTP_POST,
-        .handler = StopHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t timer_uri = {
-        .uri = "/api/timer",
-        .method = HTTP_GET,
-        .handler = TimerHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t timer_set_uri = {
-        .uri = "/api/timer",
-        .method = HTTP_POST,
-        .handler = TimerSetHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t timer_stop_uri = {
-        .uri = "/api/timer/stop",
-        .method = HTTP_POST,
-        .handler = TimerStopHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t rss_uri = {
-        .uri = "/api/rss",
-        .method = HTTP_GET,
-        .handler = RssHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t rss_post_uri = rss_uri;
-    rss_post_uri.method = HTTP_POST;
-    rss_post_uri.handler = RssSaveHandler;
-    httpd_uri_t rss_put_uri = rss_uri;
-    rss_put_uri.method = HTTP_PUT;
-    rss_put_uri.handler = RssSaveHandler;
-    httpd_uri_t rss_delete_uri = rss_uri;
-    rss_delete_uri.method = HTTP_DELETE;
-    rss_delete_uri.handler = RssDeleteHandler;
-    httpd_uri_t joke_uri = {
-        .uri = "/api/joke",
-        .method = HTTP_GET,
-        .handler = JokeHandler,
-        .user_ctx = nullptr,
-    };
-    // GET lists the registered skills, POST replaces the read-only list.
-    httpd_uri_t system_uri = {
-        .uri = "/api/system",
-        .method = HTTP_GET,
-        .handler = SystemHandler,
-        .user_ctx = nullptr,
-    };
-    httpd_uri_t system_post_uri = system_uri;
-    system_post_uri.method = HTTP_POST;
-
-    if (httpd_start(&server_handle_, &config) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start radio Web UI on port %d", port);
-        server_handle_ = nullptr;
-        return false;
-    }
-    auto register_uri = [this](const httpd_uri_t* uri) {
-        if (httpd_register_uri_handler(server_handle_, uri) != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to register URI handler: %s", uri->uri);
-        }
-    };
-    register_uri(&page_uri);
-    register_uri(&stations_uri);
-    register_uri(&stations_post_uri);
-    register_uri(&stations_put_uri);
-    register_uri(&stations_delete_uri);
-    register_uri(&import_uri);
-    register_uri(&status_uri);
-    register_uri(&play_uri);
-    register_uri(&stop_uri);
-    register_uri(&timer_uri);
-    register_uri(&timer_set_uri);
-    register_uri(&timer_stop_uri);
-    register_uri(&rss_uri);
-    register_uri(&rss_post_uri);
-    register_uri(&rss_put_uri);
-    register_uri(&rss_delete_uri);
-    register_uri(&joke_uri);
-    register_uri(&system_uri);
-    register_uri(&system_post_uri);
-    ESP_LOGI(TAG, "Radio Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
-             __DATE__, __TIME__);
-    return true;
-}
-
-void RadioWebServer::Stop() {
-    if (server_handle_ != nullptr) {
-        httpd_stop(server_handle_);
-        server_handle_ = nullptr;
-        ESP_LOGI(TAG, "Radio Web UI stopped");
-    }
-}
-
-esp_err_t RadioWebServer::PageHandler(httpd_req_t* req) {
-    if (instance_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandlePage(req);
-}
-
-esp_err_t RadioWebServer::StationsHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->radio_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleStations(req);
-}
-
-esp_err_t RadioWebServer::ImportHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->radio_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleImport(req);
-}
-
-esp_err_t RadioWebServer::StatusHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->radio_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleStatus(req);
-}
-
-esp_err_t RadioWebServer::PlayHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->radio_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandlePlay(req);
-}
-
-esp_err_t RadioWebServer::StopHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->radio_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleStop(req);
-}
-
-esp_err_t RadioWebServer::TimerHandler(httpd_req_t* req) {
-    if (instance_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleTimer(req);
-}
-
-esp_err_t RadioWebServer::TimerSetHandler(httpd_req_t* req) {
-    if (instance_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleTimerSet(req);
-}
-
-esp_err_t RadioWebServer::TimerStopHandler(httpd_req_t* req) {
-    if (instance_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleTimerStop(req);
-}
-
-esp_err_t RadioWebServer::RssHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->rss_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleRss(req);
-}
-
-esp_err_t RadioWebServer::RssSaveHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->rss_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleRssSave(req);
-}
-
-esp_err_t RadioWebServer::RssDeleteHandler(httpd_req_t* req) {
-    if (instance_ == nullptr || instance_->rss_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleRssDelete(req);
-}
-
-esp_err_t RadioWebServer::JokeHandler(httpd_req_t* req) {
-    if (instance_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleJoke(req);
-}
-
-esp_err_t RadioWebServer::SystemHandler(httpd_req_t* req) {
-    if (instance_ == nullptr) {
-        return ESP_FAIL;
-    }
-    return instance_->HandleSystem(req);
-}
-
-esp_err_t RadioWebServer::HandlePage(httpd_req_t* req) {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, kPageHtml, HTTPD_RESP_USE_STRLEN);
-}
-
-esp_err_t RadioWebServer::SendJson(httpd_req_t* req, int status, const std::string& body) {
+esp_err_t SendJson(httpd_req_t* req, int status, const std::string& body) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_status(req, status == 200   ? "200 OK"
                                          : status == 201 ? "201 Created"
@@ -1028,196 +732,213 @@ esp_err_t RadioWebServer::SendJson(httpd_req_t* req, int status, const std::stri
     return httpd_resp_send(req, body.c_str(), body.size());
 }
 
-std::string RadioWebServer::StationsJson() const {
-    auto stations = radio_->GetStations();
-    CJsonUniquePtr root(cJSON_CreateObject());
-    CJsonUniquePtr array(cJSON_CreateArray());
-    if (root == nullptr || array == nullptr) {
-        return "{}";
-    }
-    for (const auto& [key, station] : stations) {
-        CJsonUniquePtr item(cJSON_CreateObject());
-        CJsonUniquePtr aliases(cJSON_CreateArray());
-        if (item == nullptr || aliases == nullptr) {
-            continue;
-        }
-        cJSON_AddStringToObject(item.get(), "key", key.c_str());
-        cJSON_AddStringToObject(item.get(), "name", station.name.c_str());
-        cJSON_AddStringToObject(item.get(), "url", station.url.c_str());
-        cJSON_AddStringToObject(item.get(), "description", station.description.c_str());
-        cJSON_AddStringToObject(item.get(), "genre", station.genre.c_str());
-        cJSON_AddNumberToObject(item.get(), "volume", station.volume);
-        for (const auto& alias : station.aliases) {
-            cJSON_AddItemToArray(aliases.get(), cJSON_CreateString(alias.c_str()));
-        }
-        cJSON_AddItemToObject(item.get(), "aliases", aliases.release());
-        cJSON_AddItemToArray(array.get(), item.release());
-    }
-    cJSON_AddItemToObject(root.get(), "stations", array.release());
-    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
-    return text != nullptr ? text.get() : "{}";
+esp_err_t SendError(httpd_req_t* req, int status, const std::string& message) {
+    return SendJson(req, status, ErrorJson(message));
 }
 
-esp_err_t RadioWebServer::HandleStations(httpd_req_t* req) {
-    if (req->method == HTTP_GET) {
-        return SendJson(req, 200, StationsJson());
-    }
-
-    if (req->method == HTTP_DELETE) {
-        char key[64] = {0};
-        // httpd_query_key_value wants the query string itself ("key=..."),
-        // not the full URI with the path in front of it.
-        const char* query = strchr(req->uri, '?');
-        const char* query_str = (query != nullptr) ? query + 1 : "";
-        if (httpd_query_key_value(query_str, "key", key, sizeof(key)) != ESP_OK || key[0] == '\0') {
-            return SendJson(req, 400, ErrorJson("Missing key query parameter"));
-        }
-        ESP_LOGI(TAG, "Delete station request: key='%s'", key);
-        // Distinguish "no such station" from a failed NVS save for the user.
-        if (radio_->GetStations().find(key) == radio_->GetStations().end()) {
-            ESP_LOGW(TAG, "Delete station: key not present in station list");
-            return SendJson(req, 404, ErrorJson("Station not found"));
-        }
-        if (!radio_->DeleteStation(key)) {
-            ESP_LOGE(TAG, "Delete station: failed to persist station list to NVS");
-            return SendJson(req, 500, ErrorJson("Failed to save station list"));
-        }
-        return SendJson(req, 200, "{\"ok\":true}");
-    }
-
-    // POST (add) and PUT (edit) both carry the station as a JSON body.
+bool ReadJsonBody(httpd_req_t* req, std::string& body) {
     if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
-        return SendJson(req, 400, ErrorJson("Invalid request body size"));
+        SendError(req, 400, "Invalid request body size");
+        return false;
     }
-    std::string body(req->content_len, '\0');
+    body.assign(static_cast<size_t>(req->content_len), '\0');
     size_t received = 0;
     while (received < body.size()) {
         int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
         if (ret <= 0) {
-            return SendJson(req, 400, ErrorJson("Failed to read request body"));
+            SendError(req, 400, "Failed to read request body");
+            return false;
         }
         received += static_cast<size_t>(ret);
     }
-
-    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
-    std::string key;
-    RadioStation station;
-    if (!StationFromJson(root.get(), &key, &station)) {
-        return SendJson(req, 400, ErrorJson("Expected JSON with key, name and url"));
-    }
-
-    if (req->method == HTTP_PUT) {
-        char query_key[64] = {0};
-        const char* query = strchr(req->uri, '?');
-        const char* query_str = (query != nullptr) ? query + 1 : "";
-        if (httpd_query_key_value(query_str, "key", query_key, sizeof(query_key)) == ESP_OK &&
-            query_key[0] != '\0') {
-            key = query_key;
-        }
-        if (!radio_->UpdateStation(key, station)) {
-            return SendJson(req, 404, ErrorJson("Station not found or invalid data"));
-        }
-        return SendJson(req, 200, "{\"ok\":true}");
-    }
-
-    if (req->method == HTTP_POST) {
-        if (!radio_->AddStation(key, station)) {
-            return SendJson(req, 409, ErrorJson("Station key already exists or invalid data"));
-        }
-        return SendJson(req, 201, "{\"ok\":true}");
-    }
-
-    return SendJson(req, 400, ErrorJson("Unsupported method"));
+    return true;
 }
 
-esp_err_t RadioWebServer::HandleImport(httpd_req_t* req) {
-    if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
-        return SendJson(req, 400, ErrorJson("Invalid request body size"));
-    }
-    std::string body(req->content_len, '\0');
-    size_t received = 0;
-    while (received < body.size()) {
-        int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
-        if (ret <= 0) {
-            return SendJson(req, 400, ErrorJson("Failed to read request body"));
-        }
-        received += static_cast<size_t>(ret);
-    }
+}  // namespace web
 
-    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
-    cJSON* stations = root != nullptr ? cJSON_GetObjectItem(root.get(), "stations") : nullptr;
-    if (!cJSON_IsArray(stations) || cJSON_GetArraySize(stations) == 0) {
-        return SendJson(req, 400, ErrorJson("Expected a non-empty \"stations\" array"));
-    }
+WebServer* WebServer::instance_ = nullptr;
 
-    std::map<std::string, RadioStation> imported;
-    cJSON* item = nullptr;
-    cJSON_ArrayForEach(item, stations) {
-        std::string key;
-        RadioStation station;
-        if (!StationFromJson(item, &key, &station)) {
-            return SendJson(req, 400, ErrorJson("Invalid station entry: key, name and url are required"));
-        }
-        if (!imported.emplace(key, station).second) {
-            return SendJson(req, 400, ErrorJson("Duplicate station key in import: " + key));
-        }
-    }
+WebServer::WebServer() { instance_ = this; }
 
-    ESP_LOGI(TAG, "Import station request: %d stations", static_cast<int>(imported.size()));
-    if (!radio_->ReplaceStations(imported)) {
-        ESP_LOGE(TAG, "Import station request: failed to persist station list to NVS");
-        return SendJson(req, 500, ErrorJson("Failed to save imported station list"));
+WebServer::~WebServer() {
+    Stop();
+    if (instance_ == this) {
+        instance_ = nullptr;
     }
-    CJsonUniquePtr result(cJSON_CreateObject());
-    if (result == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
-    }
-    cJSON_AddBoolToObject(result.get(), "ok", true);
-    cJSON_AddNumberToObject(result.get(), "imported", static_cast<double>(imported.size()));
-    CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
-    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
 }
 
-esp_err_t RadioWebServer::HandleStatus(httpd_req_t* req) {
-    bool playing = radio_->IsPlaying() || radio_->IsDownloading();
-    CJsonUniquePtr root(cJSON_CreateObject());
-    if (root == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
+bool WebServer::Start(int port) {
+    if (server_handle_ != nullptr) {
+        return true;
     }
-    cJSON_AddBoolToObject(root.get(), "playing", playing);
-    cJSON_AddStringToObject(root.get(), "currentKey", playing ? radio_->GetCurrentStationKey().c_str() : "");
-    cJSON_AddStringToObject(root.get(), "currentStation",
-                            playing ? radio_->GetCurrentStation().c_str() : "");
-    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
-    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = port;
+    // The whole device has only CONFIG_LWIP_MAX_SOCKETS (10) sockets, and the
+    // MQTT/UDP audio channel, the radio stream and OTA all need some. Reserving
+    // 7 for the Web UI left nothing for voice input, which then failed with
+    // "Failed to create socket" (ENFILE) after browsing the UI. Keep a few
+    // sessions and recycle the oldest instead of refusing new connections.
+    config.max_open_sockets = 3;
+    config.lru_purge_enable = true;
+    config.ctrl_port = 32770;
+    // The availability checks fetch HTTPS APIs from this task, and the TLS
+    // handshake does not fit in the default 4 KB stack.
+    config.stack_size = 12 * 1024;
+    // The TLS handshake is CPU-heavy. httpd defaults to priority 5, above the
+    // AFE fetch task (priority 3), so a request starved the audio pipeline: the
+    // codec task kept feeding while nothing drained the AFE ring buffer
+    // ("Ringbuffer of AFE(FEED) is full"). Keep the Web UI below the audio
+    // tasks; handlers still get CPU because they block on the network.
+    config.task_priority = 2;
+    // Fourteen endpoints here plus the eight of the radio API, registered below.
+    config.max_uri_handlers = 22;
+
+    if (httpd_start(&server_handle_, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start the Web UI on port %d", port);
+        server_handle_ = nullptr;
+        return false;
+    }
+
+    const httpd_uri_t routes[] = {
+        {.uri = "/", .method = HTTP_GET, .handler = PageHandler, .user_ctx = nullptr},
+        {.uri = "/api/timer", .method = HTTP_GET, .handler = TimerHandler, .user_ctx = nullptr},
+        {.uri = "/api/timer", .method = HTTP_POST, .handler = TimerSetHandler, .user_ctx = nullptr},
+        {.uri = "/api/timer/stop",
+         .method = HTTP_POST,
+         .handler = TimerStopHandler,
+         .user_ctx = nullptr},
+        {.uri = "/api/rss", .method = HTTP_GET, .handler = RssHandler, .user_ctx = nullptr},
+        {.uri = "/api/rss", .method = HTTP_POST, .handler = RssSaveHandler, .user_ctx = nullptr},
+        {.uri = "/api/rss", .method = HTTP_PUT, .handler = RssSaveHandler, .user_ctx = nullptr},
+        {.uri = "/api/rss",
+         .method = HTTP_DELETE,
+         .handler = RssDeleteHandler,
+         .user_ctx = nullptr},
+        {.uri = "/api/skills", .method = HTTP_GET, .handler = SkillsHandler, .user_ctx = nullptr},
+        {.uri = "/api/skills", .method = HTTP_POST, .handler = SkillsHandler, .user_ctx = nullptr},
+        {.uri = "/api/system", .method = HTTP_GET, .handler = SystemHandler, .user_ctx = nullptr},
+        {.uri = "/api/system", .method = HTTP_POST, .handler = SystemHandler, .user_ctx = nullptr},
+        {.uri = "/api/system/reboot", .method = HTTP_POST, .handler = RebootHandler,
+         .user_ctx = nullptr},
+        {.uri = "/api/system/check", .method = HTTP_GET, .handler = CheckHandler,
+         .user_ctx = nullptr},
+    };
+    for (const auto& route : routes) {
+        AddHandler(route);
+    }
+    // The radio tab ships with the device page, so its endpoints are registered
+    // here too instead of from every board that has a radio.
+    RadioWebApi::Register(*this);
+
+    ESP_LOGI(TAG, "Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
+             __DATE__, __TIME__);
+    return true;
 }
 
-esp_err_t RadioWebServer::HandlePlay(httpd_req_t* req) {
-    char key[64] = {0};
-    const char* query = strchr(req->uri, '?');
-    const char* query_str = (query != nullptr) ? query + 1 : "";
-    if (httpd_query_key_value(query_str, "key", key, sizeof(key)) != ESP_OK || key[0] == '\0') {
-        return SendJson(req, 400, ErrorJson("Missing key query parameter"));
+void WebServer::Stop() {
+    if (server_handle_ != nullptr) {
+        httpd_stop(server_handle_);
+        server_handle_ = nullptr;
+        ESP_LOGI(TAG, "Web UI stopped");
     }
-    ESP_LOGI(TAG, "Play station request: key='%s'", key);
-    if (!radio_->PlayStationByKey(key)) {
-        return SendJson(req, 404, ErrorJson("Station not found or failed to start playback"));
-    }
-    // Starting playback from the Web UI counts as user activity: wake the
-    // display if it went to sleep.
-    Board::GetInstance().WakeUp();
-    return SendJson(req, 200, "{\"ok\":true}");
 }
 
-esp_err_t RadioWebServer::HandleStop(httpd_req_t* req) {
-    ESP_LOGI(TAG, "Stop playback request");
-    if (!radio_->Stop()) {
-        return SendJson(req, 500, ErrorJson("Failed to stop playback"));
+bool WebServer::AddHandler(const httpd_uri_t& uri) {
+    if (server_handle_ == nullptr) {
+        ESP_LOGE(TAG, "Cannot register %s before the Web UI starts", uri.uri);
+        return false;
     }
-    return SendJson(req, 200, "{\"ok\":true}");
+    if (httpd_register_uri_handler(server_handle_, &uri) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register URI handler: %s", uri.uri);
+        return false;
+    }
+    return true;
 }
 
-esp_err_t RadioWebServer::HandleTimer(httpd_req_t* req) {
+esp_err_t WebServer::PageHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandlePage(req);
+}
+
+esp_err_t WebServer::TimerHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleTimer(req);
+}
+
+esp_err_t WebServer::TimerSetHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleTimerSet(req);
+}
+
+esp_err_t WebServer::TimerStopHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleTimerStop(req);
+}
+
+esp_err_t WebServer::RssHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleRss(req);
+}
+
+esp_err_t WebServer::RssSaveHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleRssSave(req);
+}
+
+esp_err_t WebServer::RssDeleteHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleRssDelete(req);
+}
+
+esp_err_t WebServer::SkillsHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleSkills(req);
+}
+
+esp_err_t WebServer::SystemHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleSystem(req);
+}
+
+esp_err_t WebServer::RebootHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleReboot(req);
+}
+
+esp_err_t WebServer::CheckHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleCheck(req);
+}
+
+esp_err_t WebServer::HandlePage(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    return httpd_resp_send(req, kPageHtml, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t WebServer::HandleTimer(httpd_req_t* req) {
     auto* timer = Application::GetInstance().GetTimer();
     bool running = timer != nullptr && timer->IsRunning();
     int remaining_seconds = running ? timer->GetRemainingSeconds() : 0;
@@ -1228,45 +949,45 @@ esp_err_t RadioWebServer::HandleTimer(httpd_req_t* req) {
 
     CJsonUniquePtr root(cJSON_CreateObject());
     if (root == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
+        return web::SendError(req, 500, "Out of memory");
     }
     std::string remaining = running ? timer->FormatRemaining() : std::string();
     cJSON_AddBoolToObject(root.get(), "running", running);
     cJSON_AddNumberToObject(root.get(), "remainingSeconds", remaining_seconds);
     cJSON_AddStringToObject(root.get(), "remaining", remaining.c_str());
     CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
-    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+    return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
 }
 
-esp_err_t RadioWebServer::HandleTimerSet(httpd_req_t* req) {
+esp_err_t WebServer::HandleTimerSet(httpd_req_t* req) {
     // httpd_query_key_value wants the query string itself, not the full URI.
     char seconds_text[16] = {0};
     const char* query = strchr(req->uri, '?');
     const char* query_str = (query != nullptr) ? query + 1 : "";
     if (httpd_query_key_value(query_str, "seconds", seconds_text, sizeof(seconds_text)) != ESP_OK ||
         seconds_text[0] == '\0') {
-        return SendJson(req, 400, ErrorJson("Missing seconds query parameter"));
+        return web::SendError(req, 400, "Missing seconds query parameter");
     }
 
     char* end = nullptr;
     long seconds = strtol(seconds_text, &end, 10);
     if (end == nullptr || *end != '\0' || seconds <= 0 ||
         seconds > static_cast<long>(CountdownTimer::kMaxDurationSeconds)) {
-        return SendJson(req, 400, ErrorJson("Seconds must be between 1 and 86400"));
+        return web::SendError(req, 400, "Seconds must be between 1 and 86400");
     }
 
     auto* timer = Application::GetInstance().GetTimer();
     if (timer == nullptr) {
-        return SendJson(req, 500, ErrorJson("Timer unavailable"));
+        return web::SendError(req, 500, "Timer unavailable");
     }
     ESP_LOGI(TAG, "Start timer request: %ld s", seconds);
     if (!timer->Start(static_cast<int>(seconds))) {
-        return SendJson(req, 400, ErrorJson("Failed to start timer"));
+        return web::SendError(req, 400, "Failed to start timer");
     }
 
     CJsonUniquePtr root(cJSON_CreateObject());
     if (root == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
+        return web::SendError(req, 500, "Out of memory");
     }
     std::string remaining = timer->FormatRemaining();
     cJSON_AddBoolToObject(root.get(), "ok", true);
@@ -1277,28 +998,32 @@ esp_err_t RadioWebServer::HandleTimerSet(httpd_req_t* req) {
     // so the countdown in the status line becomes visible. CountdownTimer shows
     // its own short confirmation on the subtitle line and clears it by itself.
     Board::GetInstance().WakeUp();
-    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
+    return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
 }
 
-esp_err_t RadioWebServer::HandleTimerStop(httpd_req_t* req) {
+esp_err_t WebServer::HandleTimerStop(httpd_req_t* req) {
     auto* timer = Application::GetInstance().GetTimer();
     if (timer == nullptr) {
-        return SendJson(req, 500, ErrorJson("Timer unavailable"));
+        return web::SendError(req, 500, "Timer unavailable");
     }
     ESP_LOGI(TAG, "Stop timer request");
     if (!timer->Stop()) {
-        return SendJson(req, 409, ErrorJson("No active timer"));
+        return web::SendError(req, 409, "No active timer");
     }
-    return SendJson(req, 200, "{\"ok\":true}");
+    return web::SendJson(req, 200, "{\"ok\":true}");
 }
 
-std::string RadioWebServer::FeedsJson() const {
+std::string WebServer::FeedsJson() const {
+    auto* rss = Application::GetInstance().GetRssReader();
+    if (rss == nullptr) {
+        return "{}";
+    }
     CJsonUniquePtr root(cJSON_CreateObject());
     CJsonUniquePtr array(cJSON_CreateArray());
     if (root == nullptr || array == nullptr) {
         return "{}";
     }
-    for (const auto& [key, feed] : rss_->GetFeeds()) {
+    for (const auto& [key, feed] : rss->GetFeeds()) {
         CJsonUniquePtr item(cJSON_CreateObject());
         CJsonUniquePtr aliases(cJSON_CreateArray());
         if (item == nullptr || aliases == nullptr) {
@@ -1319,11 +1044,129 @@ std::string RadioWebServer::FeedsJson() const {
     return text != nullptr ? text.get() : "{}";
 }
 
-esp_err_t RadioWebServer::HandleRss(httpd_req_t* req) {
-    return SendJson(req, 200, FeedsJson());
+esp_err_t WebServer::HandleRss(httpd_req_t* req) {
+    if (Application::GetInstance().GetRssReader() == nullptr) {
+        return web::SendError(req, 500, "RSS reader unavailable");
+    }
+    return web::SendJson(req, 200, FeedsJson());
 }
 
-std::string RadioWebServer::ToolsJson() const {
+esp_err_t WebServer::HandleRssSave(httpd_req_t* req) {
+    auto* rss = Application::GetInstance().GetRssReader();
+    if (rss == nullptr) {
+        return web::SendError(req, 500, "RSS reader unavailable");
+    }
+    std::string body;
+    if (!web::ReadJsonBody(req, body)) {
+        return ESP_OK;
+    }
+
+    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
+    if (root == nullptr) {
+        return web::SendError(req, 400, "Invalid JSON body");
+    }
+
+    // Import replaces the whole list and is sent as {"feeds": [...]}.
+    cJSON* feeds = cJSON_GetObjectItem(root.get(), "feeds");
+    if (cJSON_IsArray(feeds)) {
+        std::vector<std::pair<std::string, RssFeed>> imported_feeds;
+        cJSON* item = nullptr;
+        cJSON_ArrayForEach(item, feeds) {
+            RssFeed feed;
+            if (!FeedFromJson(item, &feed)) {
+                return web::SendError(req, 400,
+                                      "Invalid feed entry: name and url are required");
+            }
+            cJSON* item_key = cJSON_GetObjectItem(item, "key");
+            imported_feeds.emplace_back(cJSON_IsString(item_key) ? item_key->valuestring : "",
+                                        std::move(feed));
+        }
+        ESP_LOGI(TAG, "Import RSS feeds request: %d feeds",
+                 static_cast<int>(imported_feeds.size()));
+        int imported = 0;
+        std::string error;
+        if (!rss->ReplaceFeeds(imported_feeds, &imported, error)) {
+            return web::SendError(req, 400, error);
+        }
+        CJsonUniquePtr result(cJSON_CreateObject());
+        if (result == nullptr) {
+            return web::SendError(req, 500, "Out of memory");
+        }
+        cJSON_AddBoolToObject(result.get(), "ok", true);
+        cJSON_AddNumberToObject(result.get(), "imported", imported);
+        CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
+        return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
+    }
+
+    RssFeed feed;
+    if (!FeedFromJson(root.get(), &feed)) {
+        return web::SendError(req, 400, "Expected JSON with name and url");
+    }
+    // The device only fetches plain http(s); anything else is a typo in the UI.
+    if (feed.name.empty() || feed.name.size() > 64 || feed.url.size() < 8 ||
+        feed.url.size() > 256 ||
+        (feed.url.rfind("http://", 0) != 0 && feed.url.rfind("https://", 0) != 0)) {
+        return web::SendError(req, 400, "Feed needs a name (up to 64 chars) and an http(s) URL");
+    }
+
+    // PUT edits an existing feed (key unchanged), POST adds a new one and may
+    // carry an explicit key; without a key one is generated from the name.
+    cJSON* key_item = cJSON_GetObjectItem(root.get(), "key");
+    std::string key = cJSON_IsString(key_item) ? key_item->valuestring : "";
+    const bool is_edit = req->method == HTTP_PUT;
+    if (is_edit && key.empty()) {
+        return web::SendError(req, 400, "Missing key for feed update");
+    }
+    if (!key.empty() && !RssReader::IsValidKey(key)) {
+        return web::SendError(req, 400, "Feed key must be 1-32 chars of A-Z a-z 0-9 _ -");
+    }
+    CJsonUniquePtr result(cJSON_CreateObject());
+    if (result == nullptr) {
+        return web::SendError(req, 500, "Out of memory");
+    }
+
+    if (is_edit) {
+        ESP_LOGI(TAG, "Update RSS feed request: key='%s'", key.c_str());
+        if (!rss->UpdateFeed(key, feed)) {
+            return web::SendError(req, 404, "Feed not found or failed to save it");
+        }
+    } else {
+        ESP_LOGI(TAG, "Add RSS feed request: key='%s' url='%s'", key.c_str(), feed.url.c_str());
+        if (!key.empty() && rss->GetFeed(key, nullptr)) {
+            return web::SendError(req, 409, "Feed key already exists");
+        }
+        std::string new_key;
+        if (!rss->AddFeed(feed, key, &new_key)) {
+            return web::SendError(req, 409, "Feed list is full or it could not be saved");
+        }
+        key = std::move(new_key);
+    }
+
+    cJSON_AddBoolToObject(result.get(), "ok", true);
+    cJSON_AddStringToObject(result.get(), "key", key.c_str());
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
+    return web::SendJson(req, is_edit ? 200 : 201, text != nullptr ? text.get() : "{}");
+}
+
+esp_err_t WebServer::HandleRssDelete(httpd_req_t* req) {
+    auto* rss = Application::GetInstance().GetRssReader();
+    if (rss == nullptr) {
+        return web::SendError(req, 500, "RSS reader unavailable");
+    }
+    char key[64] = {0};
+    const char* query = strchr(req->uri, '?');
+    const char* query_str = (query != nullptr) ? query + 1 : "";
+    if (httpd_query_key_value(query_str, "key", key, sizeof(key)) != ESP_OK || key[0] == '\0') {
+        return web::SendError(req, 400, "Missing key query parameter");
+    }
+    ESP_LOGI(TAG, "Delete RSS feed request: key='%s'", key);
+    if (!rss->DeleteFeed(key)) {
+        return web::SendError(req, 404, "Feed not found or failed to save the list");
+    }
+    return web::SendJson(req, 200, "{\"ok\":true}");
+}
+
+std::string WebServer::SkillsJson() const {
     CJsonUniquePtr root(cJSON_CreateObject());
     CJsonUniquePtr array(cJSON_CreateArray());
     if (root == nullptr || array == nullptr) {
@@ -1344,29 +1187,21 @@ std::string RadioWebServer::ToolsJson() const {
     return text != nullptr ? text.get() : "{}";
 }
 
-esp_err_t RadioWebServer::HandleSystem(httpd_req_t* req) {
+esp_err_t WebServer::HandleSkills(httpd_req_t* req) {
     if (req->method == HTTP_GET) {
-        return SendJson(req, 200, ToolsJson());
+        return web::SendJson(req, 200, SkillsJson());
     }
     // POST carries {"read_only":["self.get_device_status", ...]}: the full list,
     // so skills the user unchecked are missing from it.
-    if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
-        return SendJson(req, 400, ErrorJson("Invalid request body size"));
-    }
-    std::string body(req->content_len, '\0');
-    size_t received = 0;
-    while (received < body.size()) {
-        int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
-        if (ret <= 0) {
-            return SendJson(req, 400, ErrorJson("Failed to read request body"));
-        }
-        received += static_cast<size_t>(ret);
+    std::string body;
+    if (!web::ReadJsonBody(req, body)) {
+        return ESP_OK;
     }
 
     CJsonUniquePtr root(cJSON_Parse(body.c_str()));
     cJSON* read_only = root != nullptr ? cJSON_GetObjectItem(root.get(), "read_only") : nullptr;
     if (!cJSON_IsArray(read_only)) {
-        return SendJson(req, 400, ErrorJson("Expected a \"read_only\" array"));
+        return web::SendError(req, 400, "Expected a \"read_only\" array");
     }
     std::vector<std::string> names;
     cJSON* name = nullptr;
@@ -1378,140 +1213,96 @@ esp_err_t RadioWebServer::HandleSystem(httpd_req_t* req) {
     ESP_LOGI(TAG, "Save read-only skill list: %d skills", static_cast<int>(names.size()));
     if (!McpServer::GetInstance().SetReadOnlyTools(names)) {
         ESP_LOGE(TAG, "Save read-only skill list: failed to persist it to NVS");
-        return SendJson(req, 500, ErrorJson("Failed to save the skill list"));
+        return web::SendError(req, 500, "Failed to save the skill list");
     }
-    return SendJson(req, 200, "{\"ok\":true}");
+    return web::SendJson(req, 200, "{\"ok\":true}");
 }
 
-esp_err_t RadioWebServer::HandleJoke(httpd_req_t* req) {
-    std::string joke;
-    std::string error;
-    if (!JokeReader::Fetch(joke, error)) {
-        ESP_LOGW(TAG, "Failed to fetch a joke: %s", error.c_str());
-        return SendJson(req, 502, ErrorJson(error));
+esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
+    AudioCodec* codec = Board::GetInstance().GetAudioCodec();
+    if (codec == nullptr) {
+        return web::SendError(req, 503, "Audio codec is not available");
     }
-    CJsonUniquePtr root(cJSON_CreateObject());
-    if (root == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
-    }
-    cJSON_AddStringToObject(root.get(), "joke", joke.c_str());
-    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
-    return SendJson(req, 200, text != nullptr ? text.get() : "{}");
-}
-
-esp_err_t RadioWebServer::HandleRssSave(httpd_req_t* req) {
-    if (req->content_len <= 0 || req->content_len > static_cast<int>(kMaxBodySize)) {
-        return SendJson(req, 400, ErrorJson("Invalid request body size"));
-    }
-    std::string body(req->content_len, '\0');
-    size_t received = 0;
-    while (received < body.size()) {
-        int ret = httpd_req_recv(req, body.data() + received, body.size() - received);
-        if (ret <= 0) {
-            return SendJson(req, 400, ErrorJson("Failed to read request body"));
+    if (req->method == HTTP_GET) {
+        CJsonUniquePtr root(cJSON_CreateObject());
+        if (root == nullptr) {
+            return web::SendError(req, 500, "Out of memory");
         }
-        received += static_cast<size_t>(ret);
+        cJSON_AddNumberToObject(root.get(), "volume", codec->output_volume());
+        CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+        return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
     }
 
+    // POST carries {"volume":0..100}; the value applies to the speaker at once.
+    std::string body;
+    if (!web::ReadJsonBody(req, body)) {
+        return ESP_OK;
+    }
     CJsonUniquePtr root(cJSON_Parse(body.c_str()));
-    if (root == nullptr) {
-        return SendJson(req, 400, ErrorJson("Invalid JSON body"));
+    cJSON* volume = root != nullptr ? cJSON_GetObjectItem(root.get(), "volume") : nullptr;
+    if (!cJSON_IsNumber(volume)) {
+        return web::SendError(req, 400, "Expected a \"volume\" number");
     }
+    const int value = static_cast<int>(volume->valuedouble);
+    if (value < 0 || value > 100) {
+        return web::SendError(req, 400, "Volume must be between 0 and 100");
+    }
+    ESP_LOGI(TAG, "Set speaker volume: %d", value);
+    codec->SetOutputVolume(value);
 
-    // Import replaces the whole list and is sent as {"feeds": [...]}.
-    cJSON* feeds = cJSON_GetObjectItem(root.get(), "feeds");
-    if (cJSON_IsArray(feeds)) {
-        std::vector<std::pair<std::string, RssFeed>> imported_feeds;
-        cJSON* item = nullptr;
-        cJSON_ArrayForEach(item, feeds) {
-            RssFeed feed;
-            if (!FeedFromJson(item, &feed)) {
-                return SendJson(req, 400,
-                                ErrorJson("Invalid feed entry: name and url are required"));
-            }
-            cJSON* item_key = cJSON_GetObjectItem(item, "key");
-            imported_feeds.emplace_back(cJSON_IsString(item_key) ? item_key->valuestring : "",
-                                        std::move(feed));
-        }
-        ESP_LOGI(TAG, "Import RSS feeds request: %d feeds",
-                 static_cast<int>(imported_feeds.size()));
-        int imported = 0;
-        std::string error;
-        if (!rss_->ReplaceFeeds(imported_feeds, &imported, error)) {
-            return SendJson(req, 400, ErrorJson(error));
-        }
-        CJsonUniquePtr result(cJSON_CreateObject());
-        if (result == nullptr) {
-            return SendJson(req, 500, ErrorJson("Out of memory"));
-        }
-        cJSON_AddBoolToObject(result.get(), "ok", true);
-        cJSON_AddNumberToObject(result.get(), "imported", imported);
-        CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
-        return SendJson(req, 200, text != nullptr ? text.get() : "{}");
-    }
-
-    RssFeed feed;
-    if (!FeedFromJson(root.get(), &feed)) {
-        return SendJson(req, 400, ErrorJson("Expected JSON with name and url"));
-    }
-    // The device only fetches plain http(s); anything else is a typo in the UI.
-    if (feed.name.empty() || feed.name.size() > 64 || feed.url.size() < 8 ||
-        feed.url.size() > 256 ||
-        (feed.url.rfind("http://", 0) != 0 && feed.url.rfind("https://", 0) != 0)) {
-        return SendJson(req, 400, ErrorJson("Feed needs a name (up to 64 chars) and an http(s) URL"));
-    }
-
-    // PUT edits an existing feed (key unchanged), POST adds a new one and may
-    // carry an explicit key; without a key one is generated from the name.
-    cJSON* key_item = cJSON_GetObjectItem(root.get(), "key");
-    std::string key = cJSON_IsString(key_item) ? key_item->valuestring : "";
-    const bool is_edit = req->method == HTTP_PUT;
-    if (is_edit && key.empty()) {
-        return SendJson(req, 400, ErrorJson("Missing key for feed update"));
-    }
-    if (!key.empty() && !RssReader::IsValidKey(key)) {
-        return SendJson(req, 400,
-                        ErrorJson("Feed key must be 1-32 chars of A-Z a-z 0-9 _ -"));
-    }
     CJsonUniquePtr result(cJSON_CreateObject());
     if (result == nullptr) {
-        return SendJson(req, 500, ErrorJson("Out of memory"));
+        return web::SendError(req, 500, "Out of memory");
     }
-
-    if (is_edit) {
-        ESP_LOGI(TAG, "Update RSS feed request: key='%s'", key.c_str());
-        if (!rss_->UpdateFeed(key, feed)) {
-            return SendJson(req, 404, ErrorJson("Feed not found or failed to save it"));
-        }
-    } else {
-        ESP_LOGI(TAG, "Add RSS feed request: key='%s' url='%s'", key.c_str(),
-                 feed.url.c_str());
-        if (!key.empty() && rss_->GetFeed(key, nullptr)) {
-            return SendJson(req, 409, ErrorJson("Feed key already exists"));
-        }
-        std::string new_key;
-        if (!rss_->AddFeed(feed, key, &new_key)) {
-            return SendJson(req, 409, ErrorJson("Feed list is full or it could not be saved"));
-        }
-        key = std::move(new_key);
-    }
-
     cJSON_AddBoolToObject(result.get(), "ok", true);
-    cJSON_AddStringToObject(result.get(), "key", key.c_str());
+    cJSON_AddNumberToObject(result.get(), "volume", codec->output_volume());
     CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
-    return SendJson(req, is_edit ? 200 : 201, text != nullptr ? text.get() : "{}");
+    return web::SendJson(req, 200, text != nullptr ? text.get() : "{\"ok\":true}");
 }
 
-esp_err_t RadioWebServer::HandleRssDelete(httpd_req_t* req) {
-    char key[64] = {0};
-    const char* query = strchr(req->uri, '?');
-    const char* query_str = (query != nullptr) ? query + 1 : "";
-    if (httpd_query_key_value(query_str, "key", key, sizeof(key)) != ESP_OK || key[0] == '\0') {
-        return SendJson(req, 400, ErrorJson("Missing key query parameter"));
+esp_err_t WebServer::HandleReboot(httpd_req_t* req) {
+    ESP_LOGW(TAG, "Reboot requested from the Web UI");
+    // Reply first: the reboot itself runs from the main task a moment later.
+    esp_err_t err = web::SendJson(req, 200, "{\"ok\":true}");
+    auto& app = Application::GetInstance();
+    app.Schedule([&app]() {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        app.Reboot();
+    });
+    return err;
+}
+
+esp_err_t WebServer::HandleCheck(httpd_req_t* req) {
+    const char* query = std::strchr(req->uri, '?');
+    char service[16] = {0};
+    if (query == nullptr ||
+        httpd_query_key_value(query + 1, "service", service, sizeof(service)) != ESP_OK) {
+        return web::SendError(req, 400, "Missing \"service\" query parameter");
     }
-    ESP_LOGI(TAG, "Delete RSS feed request: key='%s'", key);
-    if (!rss_->DeleteFeed(key)) {
-        return SendJson(req, 404, ErrorJson("Feed not found or failed to save the list"));
+    std::string error;
+    if (std::strcmp(service, "joke") == 0) {
+        std::string joke;
+        if (!JokeReader::Fetch(joke, error)) {
+            ESP_LOGW(TAG, "Joke service is unavailable: %s", error.c_str());
+            return web::SendError(req, 502, error);
+        }
+    } else if (std::strcmp(service, "currency") == 0) {
+        CurrencyConverter::Rate rate;
+        if (!CurrencyConverter::Convert("USD", "RUB", 1, rate, error)) {
+            ESP_LOGW(TAG, "Currency service is unavailable: %s", error.c_str());
+            return web::SendError(req, 502, error);
+        }
+    } else {
+        return web::SendError(req, 400, "Unknown service");
     }
-    return SendJson(req, 200, "{\"ok\":true}");
+    ESP_LOGI(TAG, "Service check passed: %s", service);
+
+    CJsonUniquePtr root(cJSON_CreateObject());
+    if (root == nullptr) {
+        return web::SendError(req, 500, "Out of memory");
+    }
+    cJSON_AddBoolToObject(root.get(), "ok", true);
+    cJSON_AddStringToObject(root.get(), "service", service);
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return web::SendJson(req, 200, text != nullptr ? text.get() : "{\"ok\":true}");
 }

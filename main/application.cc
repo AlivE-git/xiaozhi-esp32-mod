@@ -5,9 +5,9 @@
 #include "board.h"
 #include "cjson_utils.h"
 #include "display.h"
-#include "features/music/esp32_radio.h"
-#include "features/music/radio_web_server.h"
+#include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
+#include "features/web/web_server.h"
 #include "features/timer/countdown_timer.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
@@ -61,9 +61,9 @@ Application::~Application() {
     if (startup_wake_word_hint_timer_ != nullptr) {
         esp_timer_stop(startup_wake_word_hint_timer_);
         esp_timer_delete(startup_wake_word_hint_timer_);
-    }    if (radio_web_server_ != nullptr) {
-        delete radio_web_server_;  // Stops the HTTP server before radio teardown
-        radio_web_server_ = nullptr;
+    }    if (web_server_ != nullptr) {
+        delete web_server_;  // Stops the HTTP server before radio teardown
+        web_server_ = nullptr;
     }
 	    if (radio_ != nullptr) {
 	        radio_->Stop();
@@ -133,7 +133,7 @@ void Application::Initialize() {
     // Web UI for the radio stations, the countdown timer and the RSS feeds.
     // The server itself is started in HandleNetworkConnectedEvent(): starting
     // httpd before the TCP/IP stack is up crashes in tcpip_send_msg_wait_sem.
-    radio_web_server_ = new RadioWebServer();
+    web_server_ = new WebServer();
 
     // Create the RSS news reader (feed list only; articles are fetched on
     // demand from the Web UI or the assistant tools)
@@ -345,10 +345,10 @@ void Application::Run() {
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
 
-    // Now the TCP/IP stack is up: safe to start the radio Web UI server.
+    // Now the TCP/IP stack is up: safe to start the Web UI server.
     // Start() is idempotent, so reconnects do not restart it.
-    if (radio_web_server_ != nullptr && radio_ != nullptr) {
-        radio_web_server_->Start(radio_, rss_reader_);
+    if (web_server_ != nullptr) {
+        web_server_->Start();
     }
 
     auto state = GetDeviceState();

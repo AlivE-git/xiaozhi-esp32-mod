@@ -17,7 +17,7 @@
 #include "display.h"
 #include "features/currency/currency_converter.h"
 #include "features/joke/joke_reader.h"
-#include "features/music/esp32_radio.h"
+#include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
 #include "lvgl_image.h"
