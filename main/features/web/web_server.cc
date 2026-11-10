@@ -79,14 +79,6 @@ body{background:#f1f4f8}
      <label class="form-label" for="name">Название</label>
      <input id="name" class="form-control" required autocomplete="off">
     </div>
-    <div class="col-12">
-     <label class="form-label" for="url">Stream URL <span class="text-muted">(http/https)</span></label>
-     <input id="url" class="form-control" type="url" required autocomplete="off">
-    </div>
-    <div class="col-md-6">
-     <label class="form-label" for="description">Описание</label>
-     <input id="description" class="form-control" autocomplete="off">
-    </div>
     <div class="col-md-3">
      <label class="form-label" for="genre">Жанр</label>
      <input id="genre" class="form-control" autocomplete="off">
@@ -94,6 +86,10 @@ body{background:#f1f4f8}
     <div class="col-md-3">
      <label class="form-label" for="volume">Громкость <span class="text-muted">(0.1–4.0)</span></label>
      <input id="volume" class="form-control" type="number" step="0.1" min="0.1" max="4" value="1.0">
+    </div>
+    <div class="col-12">
+     <label class="form-label" for="url">Stream URL <span class="text-muted">(http/https)</span></label>
+     <input id="url" class="form-control" type="url" required autocomplete="off">
     </div>
     <div class="col-12">
      <label class="form-label" for="aliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую)</span></label>
@@ -372,8 +368,7 @@ function renderRows(){
     if(current)tr.className='table-success';
     const genre=s.genre?' <span class="badge text-bg-secondary">'+esc(s.genre)+'</span>':'';
     const playingBadge=current?' <span class="badge text-bg-success">▶ играет</span>':'';
-    const desc=s.description?'<div class="small text-muted">'+esc(s.description)+'</div>':'';
-    tr.innerHTML='<td><strong>'+esc(s.name)+'</strong>'+genre+playingBadge+desc+'</td>'
+    tr.innerHTML='<td><strong>'+esc(s.name)+'</strong>'+genre+playingBadge+'</td>'
       +'<td class="url">'+esc(s.url)+'</td>'
       +'<td>'+esc((s.aliases||[]).join(', '))+'</td>';
     const td=document.createElement('td');td.className='actions';
@@ -424,7 +419,6 @@ function startEdit(s){
   document.getElementById('formTitle').textContent='✏️ Редактирование станции «'+s.name+'»';
   document.getElementById('name').value=s.name||'';
   document.getElementById('url').value=s.url||'';
-  document.getElementById('description').value=s.description||'';
   document.getElementById('genre').value=s.genre||'';
   document.getElementById('volume').value=s.volume||1.0;
   document.getElementById('aliases').value=(s.aliases||[]).join(', ');
@@ -441,7 +435,6 @@ document.getElementById('stationForm').onsubmit=async e=>{
   e.preventDefault();
   const body={name:document.getElementById('name').value.trim(),
     url:document.getElementById('url').value.trim(),
-    description:document.getElementById('description').value.trim(),
     genre:document.getElementById('genre').value.trim(),
     volume:parseFloat(document.getElementById('volume').value)||1.0,
     aliases:document.getElementById('aliases').value.split(',').map(x=>x.trim()).filter(Boolean)};

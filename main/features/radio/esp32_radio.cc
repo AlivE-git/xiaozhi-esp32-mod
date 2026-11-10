@@ -140,7 +140,7 @@ bool IsValidStation(const RadioStation& station) {
     if (station.url.rfind("http://", 0) != 0 && station.url.rfind("https://", 0) != 0) {
         return false;
     }
-    if (station.url.size() > 256 || station.description.size() > 128 || station.genre.size() > 32) {
+    if (station.url.size() > 256 || station.genre.size() > 32) {
         return false;
     }
     return true;
@@ -149,7 +149,6 @@ bool IsValidStation(const RadioStation& station) {
 RadioStation NormalizeStation(RadioStation station) {
     station.name = TrimAscii(station.name);
     station.url = TrimAscii(station.url);
-    station.description = TrimAscii(station.description);
     station.genre = TrimAscii(station.genre);
     if (station.volume < 0.1f) {
         station.volume = 0.1f;
@@ -222,9 +221,6 @@ bool Esp32Radio::LoadStations() {
         RadioStation station;
         station.name = name->valuestring;
         station.url = url->valuestring;
-        if (cJSON* description = cJSON_GetObjectItem(item, "description"); cJSON_IsString(description)) {
-            station.description = description->valuestring;
-        }
         if (cJSON* genre = cJSON_GetObjectItem(item, "genre"); cJSON_IsString(genre)) {
             station.genre = genre->valuestring;
         }
@@ -279,7 +275,6 @@ bool Esp32Radio::SaveStations() {
         cJSON_AddStringToObject(item.get(), "key", key.c_str());
         cJSON_AddStringToObject(item.get(), "name", station.name.c_str());
         cJSON_AddStringToObject(item.get(), "url", station.url.c_str());
-        cJSON_AddStringToObject(item.get(), "description", station.description.c_str());
         cJSON_AddStringToObject(item.get(), "genre", station.genre.c_str());
         cJSON_AddNumberToObject(item.get(), "volume", station.volume);
         for (const auto& alias : station.aliases) {

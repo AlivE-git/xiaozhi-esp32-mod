@@ -32,16 +32,14 @@ struct RadioAudioChunk {
 struct RadioStation {
     std::string name;                 // Radio station name
     std::string url;                  // Streaming URL
-    std::string description;          // Description
     std::string genre;                // Genre
     float volume;                     // Volume amplification factor (default 1.0 = 100%)
     std::vector<std::string> aliases;  // Keywords used as extra aliases (voice search)
 
     RadioStation() : volume(1.0f) {}
-    RadioStation(const std::string& n, const std::string& u, const std::string& d = "",
-                 const std::string& g = "", float v = 1.0f,
-                 const std::vector<std::string>& a = {})
-        : name(n), url(u), description(d), genre(g), volume(v), aliases(a) {}
+    RadioStation(const std::string& n, const std::string& u, const std::string& g = "",
+                 float v = 1.0f, const std::vector<std::string>& a = {})
+        : name(n), url(u), genre(g), volume(v), aliases(a) {}
 };
 
 class Esp32Radio : public Radio {

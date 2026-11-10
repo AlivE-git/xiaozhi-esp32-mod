@@ -82,10 +82,6 @@ bool StationFromJson(cJSON* root, std::string* key, RadioStation* station) {
     *key = cJSON_IsString(key_item) ? key_item->valuestring : "";
     station->name = name->valuestring;
     station->url = url->valuestring;
-    if (cJSON* description = cJSON_GetObjectItem(root, "description");
-        cJSON_IsString(description)) {
-        station->description = description->valuestring;
-    }
     if (cJSON* genre = cJSON_GetObjectItem(root, "genre"); cJSON_IsString(genre)) {
         station->genre = genre->valuestring;
     }
@@ -123,7 +119,6 @@ std::string StationsJson(const Esp32Radio& radio) {
         cJSON_AddStringToObject(item.get(), "key", key.c_str());
         cJSON_AddStringToObject(item.get(), "name", station.name.c_str());
         cJSON_AddStringToObject(item.get(), "url", station.url.c_str());
-        cJSON_AddStringToObject(item.get(), "description", station.description.c_str());
         cJSON_AddStringToObject(item.get(), "genre", station.genre.c_str());
         cJSON_AddNumberToObject(item.get(), "volume", station.volume);
         for (const auto& alias : station.aliases) {
