@@ -42,6 +42,11 @@ body{background:#f1f4f8}
 .nav-tabs .nav-link.active{color:#111827}
 .timer-value{font-variant-numeric:tabular-nums;font-size:3.5rem;font-weight:700;line-height:1;letter-spacing:.03em}
 .timer-idle{color:#94a3b8}
+/* Floating notification: sits under the header, fades in, hides itself */
+#msg{position:fixed;top:.75rem;left:50%;z-index:1080;margin:0;width:max-content;max-width:min(92vw,34rem);
+  opacity:0;transform:translateX(-50%) translateY(-.75rem);transition:opacity .18s,transform .18s;
+  box-shadow:0 .5rem 1.5rem rgba(15,23,42,.22);pointer-events:none}
+#msg.toast-show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;cursor:pointer}
 </style></head>
 <body>
 <header class="app-header text-white shadow-sm">
@@ -350,11 +355,21 @@ let editingKey=null;
 let stationsCache=[];
 let playback={playing:false,currentKey:'',currentStation:''};
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+let msgTimer=null;
+function hideMsg(){
+  clearTimeout(msgTimer);msgTimer=null;
+  const el=document.getElementById('msg');
+  el.className='alert d-none';
+}
 function msg(t,ok){
   const el=document.getElementById('msg');
   el.textContent=t;
-  el.className='alert '+(ok===false?'alert-danger':'alert-success');
+  el.className='alert toast-show '+(ok===false?'alert-danger':'alert-success');
+  clearTimeout(msgTimer);
+  // Errors stay a bit longer, they usually carry a reason to read.
+  msgTimer=setTimeout(hideMsg,ok===false?6000:3500);
 }
+document.getElementById('msg').addEventListener('click',hideMsg);
 // The firmware limits are in bytes, while HTML maxlength counts characters:
 // one Cyrillic letter costs two bytes, so a 64-byte field fits only 32 of them.
 const utf8Bytes=s=>new TextEncoder().encode(String(s==null?'':s)).length;
