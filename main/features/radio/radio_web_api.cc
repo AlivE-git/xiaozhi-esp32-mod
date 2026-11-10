@@ -283,8 +283,13 @@ esp_err_t HandlePlay(httpd_req_t* req) {
         return web::SendError(req, 400, "Missing key query parameter");
     }
     ESP_LOGI(TAG, "Play station request: key='%s'", key);
+    if (radio->GetStations().find(key) == radio->GetStations().end()) {
+        return web::SendError(req, 404, "Station not found");
+    }
+    // PlayUrl() reports a dead stream (404, DNS error) instead of pretending to
+    // play, so the page can show the failure right away.
     if (!radio->PlayStationByKey(key)) {
-        return web::SendError(req, 404, "Station not found or failed to start playback");
+        return web::SendError(req, 502, "Не удалось открыть поток: станция недоступна");
     }
     // Starting playback from the Web UI counts as user activity: wake the
     // display if it went to sleep.

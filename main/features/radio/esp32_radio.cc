@@ -18,6 +18,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <climits>
 #include <cstdio>
@@ -486,6 +487,22 @@ bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& statio
     is_playing_ = true;
     play_thread_ = std::thread(&Esp32Radio::PlayRadioStream, this);
 
+    // A dead stream (404, DNS error, refused connection) stops the download
+    // thread right away. Wait a moment for the first audio so the caller gets a
+    // failure instead of a station that looks like it is playing.
+    bool started = false;
+    {
+        std::unique_lock<std::mutex> lock(buffer_mutex_);
+        buffer_cv_.wait_for(lock, std::chrono::seconds(4),
+                            [this] { return !is_playing_ || buffer_size_ > 0 || !is_downloading_; });
+        started = is_playing_ && (buffer_size_ > 0 || is_downloading_);
+    }
+    if (!started) {
+        ESP_LOGE(TAG, "Radio stream did not start: %s", radio_url.c_str());
+        StopLocked();
+        return false;
+    }
+
     ESP_LOGI(TAG, "Radio streaming threads started successfully");
     return true;
 }
@@ -510,6 +527,15 @@ bool Esp32Radio::Stop() {
 
     StopLocked();
     return true;
+}
+
+void Esp32Radio::FinishDownload(bool failed) {
+    is_downloading_ = false;
+    if (failed) {
+        is_playing_ = false;
+    }
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    buffer_cv_.notify_all();
 }
 
 void Esp32Radio::StopLocked() {
@@ -702,7 +728,7 @@ void Esp32Radio::DownloadRadioStream(const std::string& radio_url) {
 
     if (radio_url.empty() || radio_url.find("http") != 0) {
         ESP_LOGE(TAG, "Invalid URL format: %s", radio_url.c_str());
-        is_downloading_ = false;
+        FinishDownload(true);
         return;
     }
 
@@ -710,7 +736,7 @@ void Esp32Radio::DownloadRadioStream(const std::string& radio_url) {
     auto http = network->CreateHttp(0);
     if (!http) {
         ESP_LOGE(TAG, "Failed to create HTTP client");
-        is_downloading_ = false;
+        FinishDownload(true);
         return;
     }
 
@@ -730,7 +756,7 @@ retry_open: {
     if (!opened) {
         ESP_LOGE(TAG, "Failed to connect to radio stream URL: %s (%s)", current_url.c_str(),
                  opened.error().ToString().c_str());
-        is_downloading_ = false;
+        FinishDownload(true);
         if (display)
             display->ShowNotification("Радио: ошибка подключения", 3000);
         return;
@@ -741,7 +767,7 @@ retry_open: {
         ESP_LOGE(TAG, "Failed to read radio stream status: %s",
                  status.error().ToString().c_str());
         http->Close();
-        is_downloading_ = false;
+        FinishDownload(true);
         if (display)
             display->ShowNotification("Радио: сервер недоступен", 3000);
         return;
@@ -769,13 +795,13 @@ retry_open: {
             goto retry_open;
         }
         ESP_LOGW(TAG, "HTTP %d redirect cannot be followed, status: %d", status_code, status_code);
-        is_downloading_ = false;
+        FinishDownload(true);
         return;
     }
     if (status_code != 200 && status_code != 206) {
         ESP_LOGE(TAG, "HTTP GET failed with status code: %d", status_code);
         http->Close();
-        is_downloading_ = false;
+        FinishDownload(true);
         if (display)
             display->ShowNotification("Радио: сервер недоступен", 3000);
         return;
@@ -841,8 +867,9 @@ retry_open: {
 
         {
             std::unique_lock<std::mutex> lock(buffer_mutex_);
-            buffer_cv_.wait(lock,
-                            [this] { return buffer_size_ < MAX_BUFFER_SIZE || !is_downloading_; });
+            buffer_cv_.wait(lock, [this] {
+                return buffer_size_ < MAX_BUFFER_SIZE || !is_downloading_ || !is_playing_;
+            });
 
             if (is_downloading_) {
                 audio_buffer_.push(RadioAudioChunk(chunk_data, bytes_read));
@@ -872,12 +899,7 @@ retry_open: {
         ESP_LOGI(TAG, "Radio stream download stopped by user");
     }
 
-    is_downloading_ = false;
-
-    {
-        std::lock_guard<std::mutex> lock(buffer_mutex_);
-        buffer_cv_.notify_all();
-    }
+    FinishDownload(total_downloaded == 0);
 
     if (total_downloaded < 1024 && display) {
         display->ShowNotification("Радио: не удалось подключиться", 3000);
@@ -907,8 +929,12 @@ void Esp32Radio::PlayRadioStream() {
     {
         std::unique_lock<std::mutex> lock(buffer_mutex_);
         buffer_cv_.wait(lock, [this] {
-            return buffer_size_ >= MIN_BUFFER_SIZE || (!is_downloading_ && !audio_buffer_.empty());
+            return buffer_size_ >= MIN_BUFFER_SIZE || !is_downloading_ || !is_playing_;
         });
+    }
+    if (!is_playing_) {
+        ESP_LOGI(TAG, "Radio playback cancelled before it started");
+        return;
     }
 
     ESP_LOGI(TAG, "Starting radio playback with buffer size: %d", buffer_size_);
@@ -983,8 +1009,9 @@ void Esp32Radio::PlayRadioStream() {
                         break;
                     }
                     // Wait for new data
-                    buffer_cv_.wait(lock,
-                                    [this] { return !audio_buffer_.empty() || !is_downloading_; });
+                    buffer_cv_.wait(lock, [this] {
+                        return !audio_buffer_.empty() || !is_downloading_ || !is_playing_;
+                    });
                     if (audio_buffer_.empty()) {
                         continue;
                     }

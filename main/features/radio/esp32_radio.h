@@ -87,6 +87,10 @@ private:
     void ClearAudioBuffer();
     void CleanupAacDecoder();
     void StopLocked();
+    // Ends the download side of the stream. A failed stream also drops the
+    // playing flag and wakes both threads, so a dead URL never leaves a
+    // thread waiting for audio that will not arrive.
+    void FinishDownload(bool failed);
 
 public:
     Esp32Radio();
