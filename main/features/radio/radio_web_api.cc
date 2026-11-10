@@ -8,6 +8,7 @@
 
 #include <esp_log.h>
 
+#include <cctype>
 #include <cstring>
 #include <map>
 #include <string>
@@ -42,6 +43,32 @@ std::vector<std::string> SplitAliases(const std::string& value) {
     return aliases;
 }
 
+// Keys are the internal identity of the list, the page does not show them, so a
+// station or a file without one gets a key made from its name: "Маяк" -> "ST".
+std::string MakeStationKey(const std::string& name,
+                           const std::map<std::string, RadioStation>& existing) {
+    std::string base;
+    for (char c : name) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (std::isalnum(u) && u < 0x80) {
+            base.push_back(static_cast<char>(std::toupper(u)));
+        } else if (c == '_' || c == '-') {
+            base.push_back(c);
+        }
+        if (base.size() >= 24) {
+            break;
+        }
+    }
+    if (base.empty()) {
+        base = "ST";
+    }
+    std::string key = base;
+    for (int i = 2; existing.count(key) > 0 && i < 1000; ++i) {
+        key = base + std::to_string(i);
+    }
+    return key;
+}
+
 bool StationFromJson(cJSON* root, std::string* key, RadioStation* station) {
     if (root == nullptr || key == nullptr || station == nullptr || !cJSON_IsObject(root)) {
         return false;
@@ -49,10 +76,10 @@ bool StationFromJson(cJSON* root, std::string* key, RadioStation* station) {
     cJSON* key_item = cJSON_GetObjectItem(root, "key");
     cJSON* name = cJSON_GetObjectItem(root, "name");
     cJSON* url = cJSON_GetObjectItem(root, "url");
-    if (!cJSON_IsString(key_item) || !cJSON_IsString(name) || !cJSON_IsString(url)) {
+    if (!cJSON_IsString(name) || !cJSON_IsString(url)) {
         return false;
     }
-    *key = key_item->valuestring;
+    *key = cJSON_IsString(key_item) ? key_item->valuestring : "";
     station->name = name->valuestring;
     station->url = url->valuestring;
     if (cJSON* description = cJSON_GetObjectItem(root, "description");
@@ -152,7 +179,7 @@ esp_err_t HandleStations(httpd_req_t* req) {
     std::string key;
     RadioStation station;
     if (!StationFromJson(root.get(), &key, &station)) {
-        return web::SendError(req, 400, "Expected JSON with key, name and url");
+        return web::SendError(req, 400, "Expected JSON with name and url");
     }
 
     if (req->method == HTTP_PUT) {
@@ -170,6 +197,9 @@ esp_err_t HandleStations(httpd_req_t* req) {
     }
 
     if (req->method == HTTP_POST) {
+        if (key.empty()) {
+            key = MakeStationKey(station.name, radio->GetStations());
+        }
         if (!radio->AddStation(key, station)) {
             return web::SendError(req, 409, "Station key already exists or invalid data");
         }
@@ -202,11 +232,14 @@ esp_err_t HandleImport(httpd_req_t* req) {
         RadioStation station;
         if (!StationFromJson(item, &key, &station)) {
             return web::SendError(req, 400,
-                                  "Invalid station entry: key, name and url are required");
+                                  "Invalid station entry: name and url are required");
         }
-        if (!imported.emplace(key, station).second) {
-            return web::SendError(req, 400, "Duplicate station key in import: " + key);
+        // Exports carry keys; a file edited by hand may not, and duplicate keys
+        // are regenerated instead of failing the whole import.
+        if (key.empty() || imported.count(key) > 0) {
+            key = MakeStationKey(station.name, imported);
         }
+        imported.emplace(key, std::move(station));
     }
 
     ESP_LOGI(TAG, "Import station request: %d stations", static_cast<int>(imported.size()));

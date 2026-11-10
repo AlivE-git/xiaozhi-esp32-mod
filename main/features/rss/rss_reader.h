@@ -43,6 +43,8 @@ public:
     static bool IsValidKey(const std::string& key);
 
     // Resolves a user-spoken name ("лента", "РИА") to a feed key; empty if unknown.
+    // Aliases, then the name, then a unique category match are tried; the key
+    // itself is an internal identity and is never matched.
     std::string ResolveFeedKey(const std::string& query) const;
 
     // Adds a feed and returns its key. An empty `key` is generated from the feed

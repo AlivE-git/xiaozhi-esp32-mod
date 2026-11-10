@@ -487,15 +487,21 @@ std::string RssReader::ResolveFeedKeyLocked(const std::string& query) const {
     if (needle.empty()) {
         return feeds_.begin()->first;
     }
-    // Exact key, name or alias.
+    // Same order as the radio: aliases first, then the name, both by substring.
+    // Keys are internal identities and never take part in the search.
     for (const auto& [key, feed] : feeds_) {
-        if (ToLowerAscii(key) == needle || ToLowerAscii(feed.name) == needle) {
-            return key;
-        }
         for (const auto& alias : feed.aliases) {
-            if (ToLowerAscii(alias) == needle) {
+            const std::string alias_lower = ToLowerAscii(alias);
+            if (!alias_lower.empty() && alias_lower.find(needle) != std::string::npos) {
                 return key;
             }
+        }
+    }
+    for (const auto& [key, feed] : feeds_) {
+        const std::string name = ToLowerAscii(feed.name);
+        if (!name.empty() && (name.find(needle) != std::string::npos ||
+                              needle.find(name) != std::string::npos)) {
+            return key;
         }
     }
     // A category name works when it points at exactly one feed ("спорт").
@@ -513,19 +519,6 @@ std::string RssReader::ResolveFeedKeyLocked(const std::string& query) const {
     }
     if (category_matches == 1) {
         return category_key;
-    }
-    // Substring of the name or of an alias ("прочитай ленту" for "Лента.ру").
-    for (const auto& [key, feed] : feeds_) {
-        const std::string name = ToLowerAscii(feed.name);
-        if (name.find(needle) != std::string::npos ||
-            needle.find(name) != std::string::npos) {
-            return key;
-        }
-        for (const auto& alias : feed.aliases) {
-            if (ToLowerAscii(alias).find(needle) != std::string::npos) {
-                return key;
-            }
-        }
     }
     return "";
 }

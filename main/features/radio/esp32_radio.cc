@@ -328,7 +328,9 @@ bool Esp32Radio::SaveStations() {
 bool Esp32Radio::PlayStation(const std::string& station_name) {
     ESP_LOGI(TAG, "Request to play radio station: %s", station_name.c_str());
 
-    // Convert input to lowercase for case-insensitive search
+    // Convert input to lowercase for case-insensitive search. Only aliases and
+    // the name pick a station: keys are internal identities generated from the
+    // name, so they are never matched here.
     std::string lower_input = ToLowerAscii(station_name);
 
     RadioStation found;
@@ -371,19 +373,6 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
             }
         }
 
-        // Finally, try to find by station key (case insensitive)
-        if (!found_station) {
-            for (const auto& station : radio_stations_) {
-                if (ToLowerAscii(station.first) == lower_input) {
-                    ESP_LOGI(TAG, "Found station by key (case insensitive): '%s' -> %s",
-                             station_name.c_str(), station.second.name.c_str());
-                    found = station.second;
-                    found_key = station.first;
-                    found_station = true;
-                    break;
-                }
-            }
-        }
     }
 
     if (!found_station) {
@@ -540,7 +529,7 @@ std::vector<std::string> Esp32Radio::GetStationList() const {
     std::vector<std::string> station_list;
     std::lock_guard<std::mutex> lock(stations_mutex_);
     for (const auto& station : radio_stations_) {
-        std::string entry = station.first + " - " + station.second.name;
+        std::string entry = station.second.name;
         if (!station.second.aliases.empty()) {
             entry += " (";
             for (size_t i = 0; i < station.second.aliases.size(); ++i) {

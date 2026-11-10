@@ -264,7 +264,7 @@ void McpServer::AddCommonTools() {
                     return std::string("Stopping radio");
                 });
         AddTool("self.radio.get_stations",
-                "List all available radio stations with their keys and display names.",
+                "List all available radio stations by name, with their keywords in brackets.",
                 PropertyList(), [radio](const PropertyList& properties) -> ReturnValue {
                     std::string response = "Available radio stations:\n";
                     for (const auto& s : radio->GetStationList()) {

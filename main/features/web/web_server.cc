@@ -61,8 +61,8 @@ body{background:#f1f4f8}
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="skills">🧠 Навыки</button></li>
- <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="wol">🌐 Wake-on-LAN</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
 </ul>
 <div class="tab-content">
 <div class="tab-pane active" id="pane-radio" role="tabpanel">
@@ -72,10 +72,6 @@ body{background:#f1f4f8}
  <div class="card-body">
   <form id="stationForm">
    <div class="row g-3">
-    <div class="col-md-6">
-     <label class="form-label" for="key">Ключ <span class="text-muted">(уникальный ID, напр. MAYAK)</span></label>
-     <input id="key" class="form-control" required autocomplete="off">
-    </div>
     <div class="col-md-6">
      <label class="form-label" for="name">Название</label>
      <input id="name" class="form-control" required autocomplete="off">
@@ -113,7 +109,7 @@ body{background:#f1f4f8}
 <div class="card-header">📡 Станции</div>
 <div class="table-responsive">
 <table class="table table-hover align-middle mb-0">
-<thead class="table-dark"><tr><th>Ключ</th><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
+<thead class="table-dark"><tr><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
 <tbody id="rows"></tbody>
 </table>
 </div>
@@ -174,11 +170,7 @@ body{background:#f1f4f8}
  <div class="card-body">
   <form id="feedForm">
    <div class="row g-3">
-    <div class="col-md-4">
-     <label class="form-label" for="feedKey">Ключ <span class="text-muted">(уникальный ID, необязательно)</span></label>
-     <input id="feedKey" class="form-control" autocomplete="off" placeholder="LENTA">
-    </div>
-    <div class="col-md-8">
+    <div class="col-md-12">
      <label class="form-label" for="feedName">Название <span class="text-muted">(как называть голосом)</span></label>
      <input id="feedName" class="form-control" required autocomplete="off" placeholder="Лента">
     </div>
@@ -200,7 +192,7 @@ body{background:#f1f4f8}
     </div>
    </div>
   </form>
-  <div class="text-muted small mt-3">Ключ — латиница, цифры, «_» и «-», до 32 символов; если оставить пустым, он создастся из названия. Голосом можно попросить «прочитай 5 последних новостей».</div>
+  <div class="text-muted small mt-3">Голосом можно попросить «прочитай 5 последних новостей».</div>
  </div>
 </section>
 
@@ -208,7 +200,7 @@ body{background:#f1f4f8}
  <div class="card-header">📡 Ленты</div>
  <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
-   <thead class="table-dark"><tr><th>Ключ</th><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
+   <thead class="table-dark"><tr><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
    <tbody id="feedRows"></tbody>
   </table>
  </div>
@@ -284,16 +276,16 @@ body{background:#f1f4f8}
  <div class="card-body">
   <form id="wolForm">
    <div class="row g-3">
-    <div class="col-md-4">
+    <div class="col-md-3">
      <label class="form-label" for="wolName">Название</label>
      <input id="wolName" class="form-control" type="text" placeholder="Рабочий ПК" required autocomplete="off">
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
      <label class="form-label" for="wolMac">MAC-адрес</label>
      <input id="wolMac" class="form-control" type="text" placeholder="AA:BB:CC:DD:EE:FF" required autocomplete="off">
     </div>
-    <div class="col-md-2">
-     <label class="form-label" for="wolBroadcast">Адрес</label>
+    <div class="col-md-4">
+     <label class="form-label" for="wolBroadcast">Широковещательный адрес</label>
      <input id="wolBroadcast" class="form-control" type="text" value="255.255.255.255" autocomplete="off">
     </div>
     <div class="col-md-2">
@@ -348,7 +340,7 @@ function renderRows(){
   const stations=stationsCache;
   const tb=document.getElementById('rows');tb.innerHTML='';
   if(stations.length===0){
-    tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">Станций пока нет. Добавьте первую через форму выше или импортируйте список.</td></tr>';
+    tb.innerHTML='<tr><td colspan="4" class="text-center text-muted py-4">Станций пока нет. Добавьте первую через форму выше или импортируйте список.</td></tr>';
     return;}
   stations.forEach(s=>{
     const current=isCurrent(s);
@@ -357,8 +349,7 @@ function renderRows(){
     const genre=s.genre?' <span class="badge text-bg-secondary">'+esc(s.genre)+'</span>':'';
     const playingBadge=current?' <span class="badge text-bg-success">▶ играет</span>':'';
     const desc=s.description?'<div class="small text-muted">'+esc(s.description)+'</div>':'';
-    tr.innerHTML='<td><code>'+esc(s.key)+'</code></td>'
-      +'<td><strong>'+esc(s.name)+'</strong>'+genre+playingBadge+desc+'</td>'
+    tr.innerHTML='<td><strong>'+esc(s.name)+'</strong>'+genre+playingBadge+desc+'</td>'
       +'<td class="url">'+esc(s.url)+'</td>'
       +'<td>'+esc((s.aliases||[]).join(', '))+'</td>';
     const td=document.createElement('td');td.className='actions';
@@ -406,8 +397,7 @@ async function stopPlayback(btn){
 }
 function startEdit(s){
   editingKey=s.key;
-  document.getElementById('formTitle').textContent='✏️ Редактирование станции '+s.key;
-  document.getElementById('key').value=s.key;document.getElementById('key').readOnly=true;
+  document.getElementById('formTitle').textContent='✏️ Редактирование станции «'+s.name+'»';
   document.getElementById('name').value=s.name||'';
   document.getElementById('url').value=s.url||'';
   document.getElementById('description').value=s.description||'';
@@ -419,15 +409,13 @@ function startEdit(s){
 }
 function resetForm(){
   editingKey=null;document.getElementById('stationForm').reset();
-  document.getElementById('key').readOnly=false;
   document.getElementById('formTitle').textContent='➕ Добавить станцию';
   document.getElementById('cancelBtn').classList.add('d-none');
 }
 document.getElementById('cancelBtn').onclick=resetForm;
 document.getElementById('stationForm').onsubmit=async e=>{
   e.preventDefault();
-  const body={key:document.getElementById('key').value.trim(),
-    name:document.getElementById('name').value.trim(),
+  const body={name:document.getElementById('name').value.trim(),
     url:document.getElementById('url').value.trim(),
     description:document.getElementById('description').value.trim(),
     genre:document.getElementById('genre').value.trim(),
@@ -473,13 +461,12 @@ let feedsCache=[];
 function renderFeedRows(){
   const tb=document.getElementById('feedRows');tb.innerHTML='';
   if(feedsCache.length===0){
-    tb.innerHTML='<tr><td colspan="5" class="text-center text-muted py-4">RSS-лент пока нет. Добавьте первую через форму выше или импортируйте список.</td></tr>';
+    tb.innerHTML='<tr><td colspan="4" class="text-center text-muted py-4">RSS-лент пока нет. Добавьте первую через форму выше или импортируйте список.</td></tr>';
     return;}
   feedsCache.forEach(f=>{
     const tr=document.createElement('tr');
     const category=f.category?' <span class="badge text-bg-secondary">'+esc(f.category)+'</span>':'';
-    tr.innerHTML='<td><code>'+esc(f.key)+'</code></td>'
-      +'<td><strong>'+esc(f.name)+'</strong>'+category+'</td>'
+    tr.innerHTML='<td><strong>'+esc(f.name)+'</strong>'+category+'</td>'
       +'<td class="url">'+esc(f.url)+'</td>'
       +'<td>'+esc((f.aliases||[]).join(', '))+'</td>';
     const td=document.createElement('td');td.className='actions';
@@ -502,9 +489,7 @@ async function loadRss(){
 }
 function startFeedEdit(f){
   editingFeed=f.key;
-  document.getElementById('feedFormTitle').textContent='✏️ Редактирование ленты '+f.key;
-  document.getElementById('feedKey').value=f.key;
-  document.getElementById('feedKey').readOnly=true;
+  document.getElementById('feedFormTitle').textContent='✏️ Редактирование ленты «'+f.name+'»';
   document.getElementById('feedName').value=f.name||'';
   document.getElementById('feedUrl').value=f.url||'';
   document.getElementById('feedCategory').value=f.category||'';
@@ -514,7 +499,6 @@ function startFeedEdit(f){
 }
 function resetFeedForm(){
   editingFeed=null;document.getElementById('feedForm').reset();
-  document.getElementById('feedKey').readOnly=false;
   document.getElementById('feedFormTitle').textContent='➕ Добавить RSS-ленту';
   document.getElementById('feedCancelBtn').classList.add('d-none');
 }
@@ -525,8 +509,7 @@ document.getElementById('feedForm').onsubmit=async e=>{
     url:document.getElementById('feedUrl').value.trim(),
     category:document.getElementById('feedCategory').value.trim(),
     aliases:document.getElementById('feedAliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
-  const typedKey=document.getElementById('feedKey').value.trim();
-  if(editingFeed||typedKey)body.key=editingFeed||typedKey;
+  if(editingFeed)body.key=editingFeed;
   const r=await fetch('/api/rss',{method:editingFeed?'PUT':'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const res=await r.json().catch(()=>({}));

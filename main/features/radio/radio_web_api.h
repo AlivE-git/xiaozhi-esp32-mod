@@ -9,10 +9,12 @@ class WebServer;
 //
 // Endpoints:
 //   GET    /api/stations          - stations as JSON (also used for export)
-//   POST   /api/stations          - add a station
+//   POST   /api/stations          - add a station ({name, url, ...}); the key is
+//                                   generated from the name and stays internal
 //   PUT    /api/stations?key=KEY  - edit a station
 //   DELETE /api/stations?key=KEY  - delete a station
 //   POST   /api/import            - replace the whole list from an exported JSON file
+//                                   (entries without a key get one from the name)
 //   GET    /api/status            - {playing, currentKey, currentStation}
 //   POST   /api/play?key=KEY      - start playing a station by key
 //                                   (also wakes the display from sleep)
