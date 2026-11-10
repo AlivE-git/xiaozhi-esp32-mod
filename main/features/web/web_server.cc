@@ -11,10 +11,10 @@
 #include "features/wol/wol_web_api.h"
 #include "mcp_server.h"
 
-#include <esp_app_format.h>
+#include <esp_app_desc.h>
 #include <esp_log.h>
-#include <esp_system.h>
 #include <esp_timer.h>
+#include <nvs.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -241,7 +241,28 @@ body{background:#f1f4f8}
 </section>
 </div>
 
+
 <div class="tab-pane" id="pane-system" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header d-flex justify-content-between align-items-center">
+  <span>📊 Статус</span>
+  <button class="btn btn-sm btn-outline-secondary" type="button" id="statusRefreshBtn">Обновить</button>
+ </div>
+ <div class="card-body">
+  <dl class="row mb-0 small">
+   <dt class="col-5 col-sm-3">Прошивка</dt><dd class="col-7 col-sm-9" id="statusVersion">—</dd>
+   <dt class="col-5 col-sm-3">Сборка</dt><dd class="col-7 col-sm-9" id="statusBuild">—</dd>
+   <dt class="col-5 col-sm-3">Время работы</dt><dd class="col-7 col-sm-9" id="statusUptime">—</dd>
+   <dt class="col-5 col-sm-3">Wi-Fi</dt><dd class="col-7 col-sm-9" id="statusWifi">—</dd>
+   <dt class="col-5 col-sm-3">NVS</dt>
+   <dd class="col-7 col-sm-9">
+    <div class="progress" style="height:1.25rem"><div class="progress-bar bg-success" id="statusNvsBar" role="progressbar" style="width:0%">—</div></div>
+    <div class="small text-muted" id="statusNvsText">—</div>
+   </dd>
+  </dl>
+ </div>
+</section>
 
 <section class="card mb-4">
  <div class="card-header">🔊 Громкость</div>
@@ -655,7 +676,55 @@ async function loadSystem(){
     const slider=document.getElementById('volumeSlider');
     if(typeof data.volume==='number')slider.value=data.volume;
     document.getElementById('volumeValue').textContent=slider.value;
+    renderStatus(data);
   }catch(e){/* device unreachable; keep last state */}
+}
+function fmtUptime(seconds){
+  const total=Math.max(0,Math.floor(seconds||0));
+  const days=Math.floor(total/86400),hours=Math.floor(total%86400/3600);
+  const minutes=Math.floor(total%3600/60),secs=total%60;
+  if(days>0)return days+' д '+hours+' ч '+minutes+' мин';
+  if(hours>0)return hours+' ч '+minutes+' мин '+secs+' с';
+  return minutes+' мин '+secs+' с';
+}
+function signalLabel(rssi){
+  if(rssi>=-60)return 'отличный';
+  if(rssi>=-70)return 'хороший';
+  if(rssi>=-80)return 'слабый';
+  return 'очень слабый';
+}
+function setStatusText(id,text){
+  const el=document.getElementById(id);
+  if(el)el.textContent=text;
+}
+function renderStatus(data){
+  const status=data.status||{};
+  setStatusText('statusVersion',status.version||'—');
+  setStatusText('statusBuild',status.buildDate?(status.buildDate+' '+status.buildTime):'—');
+  setStatusText('statusUptime',typeof status.uptimeSeconds==='number'?fmtUptime(status.uptimeSeconds):'—');
+  const device=data.device||{};
+  const network=device.network||{};
+  let wifi='—';
+  if(network.ssid||typeof network.rssi==='number'){
+    wifi=network.ssid||'без имени';
+    if(typeof network.rssi==='number')wifi+=' · '+network.rssi+' dBm · '+signalLabel(network.rssi);
+  }
+  setStatusText('statusWifi',wifi);
+  const nvs=status.nvs||{};
+  const nvsBar=document.getElementById('statusNvsBar');
+  const nvsText=document.getElementById('statusNvsText');
+  if(typeof nvs.used==='number'&&typeof nvs.total==='number'&&nvs.total>0){
+    const percent=Math.min(100,Math.round(nvs.used*100/nvs.total));
+    nvsBar.style.width=percent+'%';
+    nvsBar.className='progress-bar '+(percent>=90?'bg-danger':(percent>=70?'bg-warning text-dark':'bg-success'));
+    nvsBar.textContent=percent+'%';
+    nvsText.textContent=nvs.used+' из '+nvs.total+' записей занято';
+  }else{
+    nvsBar.style.width='0%';
+    nvsBar.className='progress-bar bg-secondary';
+    nvsBar.textContent='—';
+    nvsText.textContent='недоступно';
+  }
 }
 async function saveVolume(value){
   const r=await fetch('/api/system',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -687,6 +756,12 @@ document.getElementById('volumeSlider').onchange=e=>saveVolume(parseInt(e.target
 document.getElementById('checkJokeBtn').onclick=e=>checkService('joke',e.currentTarget);
 document.getElementById('checkCurrencyBtn').onclick=e=>checkService('currency',e.currentTarget);
 document.getElementById('rebootBtn').onclick=rebootDevice;
+document.getElementById('statusRefreshBtn').onclick=()=>loadSystem();
+// Keep uptime and Wi-Fi signal live while the System tab is open.
+setInterval(()=>{
+  const pane=document.getElementById('pane-system');
+  if(pane&&pane.classList.contains('active'))loadSystem();
+},5000);
 let wolCache=[];
 let editingWolKey='';
 function renderWolRows(){
@@ -1398,7 +1473,7 @@ esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
         cJSON_AddNumberToObject(root.get(), "volume", codec->output_volume());
 
         // Status comes from data the device already has for the MCP status tool:
-        // the app descriptor, the heap and the board status JSON. No new route.
+        // the app descriptor and the board status JSON. No new route.
         const esp_app_desc_t* app = esp_app_get_description();
         cJSON* status = cJSON_AddObjectToObject(root.get(), "status");
         if (status != nullptr && app != nullptr) {
@@ -1407,8 +1482,17 @@ esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
             cJSON_AddStringToObject(status, "buildTime", app->time);
             cJSON_AddNumberToObject(status, "uptimeSeconds",
                                     static_cast<double>(esp_timer_get_time()) / 1000000.0);
-            cJSON_AddNumberToObject(status, "freeHeap", esp_get_free_heap_size());
-            cJSON_AddNumberToObject(status, "minFreeHeap", esp_get_minimum_free_heap_size());
+        }
+        // NVS usage in 32-byte entries, so the page can show how full the
+        // partition is before a save starts failing.
+        nvs_stats_t nvs_stats = {};
+        if (status != nullptr && nvs_get_stats(nullptr, &nvs_stats) == ESP_OK &&
+            nvs_stats.total_entries > 0) {
+            cJSON* nvs = cJSON_AddObjectToObject(status, "nvs");
+            if (nvs != nullptr) {
+                cJSON_AddNumberToObject(nvs, "used", nvs_stats.used_entries);
+                cJSON_AddNumberToObject(nvs, "total", nvs_stats.total_entries);
+            }
         }
         CJsonUniquePtr device(cJSON_Parse(Board::GetInstance().GetDeviceStatusJson().c_str()));
         if (device != nullptr) {
