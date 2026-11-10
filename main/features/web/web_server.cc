@@ -36,6 +36,12 @@ body{background:#f1f4f8}
 .app-header .badge{background:#f59e0b;color:#111827}
 .card{border:0;box-shadow:0 .125rem .5rem rgba(15,23,42,.08);border-radius:.75rem}
 .card-header{background:#fff;border-bottom:1px solid #e5e7eb;font-weight:600}
+/* Add/edit forms start collapsed; the header itself is the toggle */
+.card-header.collapsible{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.card-header.collapsible:hover{background:#f8fafc}
+.card-header.collapsible .chevron{color:#64748b;transition:transform .15s}
+.card-header.collapsible[aria-expanded="true"] .chevron{transform:rotate(90deg)}
+.card-header.collapsible:focus-visible{outline:2px solid #1f3a5f;outline-offset:-2px}
 .url{font-size:.82rem;word-break:break-all}
 .actions{white-space:nowrap;text-align:right}
 .nav-tabs .nav-link{color:#1f3a5f;font-weight:600}
@@ -76,8 +82,10 @@ body{background:#f1f4f8}
 <div class="tab-pane active" id="pane-radio" role="tabpanel">
 
 <section class="card mb-4">
- <div class="card-header" id="formTitle">➕ Добавить станцию</div>
- <div class="card-body">
+ <div class="card-header collapsible" role="button" tabindex="0" aria-expanded="false" aria-controls="stationFormBody">
+  <span id="formTitle">➕ Добавить станцию</span><span class="chevron">▸</span>
+ </div>
+ <div class="card-body d-none" id="stationFormBody">
   <form id="stationForm">
    <div class="row g-3">
     <div class="col-md-6">
@@ -170,8 +178,10 @@ body{background:#f1f4f8}
 <div class="tab-pane" id="pane-news" role="tabpanel">
 
 <section class="card mb-4">
- <div class="card-header" id="feedFormTitle">➕ Добавить RSS-ленту</div>
- <div class="card-body">
+ <div class="card-header collapsible" role="button" tabindex="0" aria-expanded="false" aria-controls="feedFormBody">
+  <span id="feedFormTitle">➕ Добавить RSS-ленту</span><span class="chevron">▸</span>
+ </div>
+ <div class="card-body d-none" id="feedFormBody">
   <form id="feedForm">
    <div class="row g-3">
     <div class="col-md-12">
@@ -253,7 +263,6 @@ body{background:#f1f4f8}
  <div class="card-body">
   <dl class="row mb-0 small">
    <dt class="col-5 col-sm-3">Прошивка</dt><dd class="col-7 col-sm-9" id="statusVersion">—</dd>
-   <dt class="col-5 col-sm-3">Сборка</dt><dd class="col-7 col-sm-9" id="statusBuild">—</dd>
    <dt class="col-5 col-sm-3">Время работы</dt><dd class="col-7 col-sm-9" id="statusUptime">—</dd>
    <dt class="col-5 col-sm-3">Wi-Fi</dt><dd class="col-7 col-sm-9" id="statusWifi">—</dd>
    <dt class="col-5 col-sm-3">NVS</dt>
@@ -268,9 +277,12 @@ body{background:#f1f4f8}
 <section class="card mb-4">
  <div class="card-header">🔊 Громкость</div>
  <div class="card-body">
-  <label class="form-label" for="volumeSlider">Громкость колонки <span id="volumeValue" class="badge text-bg-secondary ms-1">—</span></label>
-  <input id="volumeSlider" type="range" class="form-range" min="0" max="100" step="1" value="70">
-  <div class="text-muted small">Громкость меняется сразу, кнопка «Сохранить» не нужна.</div>
+  <div class="d-flex align-items-center gap-3">
+   <span id="volumeValue" class="badge text-bg-secondary d-inline-flex justify-content-center align-items-center"
+         style="width: 3rem; min-width: 3rem; flex-shrink: 0;">70</span>
+   <input id="volumeSlider" type="range" class="form-range mb-0 flex-grow-1"
+          min="0" max="100" step="1" value="70">
+  </div>
  </div>
 </section>
 
@@ -281,7 +293,7 @@ body{background:#f1f4f8}
    <button class="btn btn-outline-primary" type="button" id="checkJokeBtn">😂 Сервис анекдотов</button>
    <button class="btn btn-outline-primary" type="button" id="checkCurrencyBtn">💱 Курс валют</button>
   </div>
-  <div class="text-muted small mt-3">Кнопка реально запрашивает сервис с устройства и показывает, отвечает ли он.</div>
+  <div class="text-muted small mt-3">Кнопка запрашивает сервис с устройства и показывает, отвечает ли он.</div>
  </div>
 </section>
 
@@ -297,8 +309,10 @@ body{background:#f1f4f8}
 <div class="tab-pane" id="pane-wol" role="tabpanel">
 
 <section class="card mb-4">
- <div class="card-header" id="wolFormTitle">➕ Добавить компьютер</div>
- <div class="card-body">
+ <div class="card-header collapsible" role="button" tabindex="0" aria-expanded="false" aria-controls="wolFormBody">
+  <span id="wolFormTitle">➕ Добавить компьютер</span><span class="chevron">▸</span>
+ </div>
+ <div class="card-body d-none" id="wolFormBody">
   <form id="wolForm">
    <div class="row g-3">
     <div class="col-md-3">
@@ -370,6 +384,25 @@ function msg(t,ok){
   msgTimer=setTimeout(hideMsg,ok===false?6000:3500);
 }
 document.getElementById('msg').addEventListener('click',hideMsg);
+// Add/edit form cards stay collapsed until the header is clicked or editing starts.
+function setFormOpen(bodyId,open){
+  const body=document.getElementById(bodyId);
+  if(!body)return;
+  body.classList.toggle('d-none',!open);
+  document.querySelectorAll('.card-header.collapsible[aria-controls="'+bodyId+'"]')
+    .forEach(h=>h.setAttribute('aria-expanded',open?'true':'false'));
+}
+document.querySelectorAll('.card-header.collapsible').forEach(header=>{
+  const bodyId=header.getAttribute('aria-controls');
+  const toggle=()=>{
+    const body=document.getElementById(bodyId);
+    if(body)setFormOpen(bodyId,body.classList.contains('d-none'));
+  };
+  header.addEventListener('click',toggle);
+  header.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();}
+  });
+});
 // The firmware limits are in bytes, while HTML maxlength counts characters:
 // one Cyrillic letter costs two bytes, so a 64-byte field fits only 32 of them.
 const utf8Bytes=s=>new TextEncoder().encode(String(s==null?'':s)).length;
@@ -465,12 +498,14 @@ function startEdit(s){
   document.getElementById('volume').value=s.volume||1.0;
   document.getElementById('aliases').value=(s.aliases||[]).join(', ');
   document.getElementById('cancelBtn').classList.remove('d-none');
+  setFormOpen('stationFormBody',true);
   document.getElementById('formTitle').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function resetForm(){
   editingKey=null;document.getElementById('stationForm').reset();
   document.getElementById('formTitle').textContent='➕ Добавить станцию';
   document.getElementById('cancelBtn').classList.add('d-none');
+  setFormOpen('stationFormBody',false);
 }
 document.getElementById('cancelBtn').onclick=resetForm;
 document.getElementById('stationForm').onsubmit=async e=>{
@@ -558,12 +593,14 @@ function startFeedEdit(f){
   document.getElementById('feedCategory').value=f.category||'';
   document.getElementById('feedAliases').value=(f.aliases||[]).join(', ');
   document.getElementById('feedCancelBtn').classList.remove('d-none');
+  setFormOpen('feedFormBody',true);
   document.getElementById('feedFormTitle').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function resetFeedForm(){
   editingFeed=null;document.getElementById('feedForm').reset();
   document.getElementById('feedFormTitle').textContent='➕ Добавить RSS-ленту';
   document.getElementById('feedCancelBtn').classList.add('d-none');
+  setFormOpen('feedFormBody',false);
 }
 document.getElementById('feedCancelBtn').onclick=resetFeedForm;
 document.getElementById('feedForm').onsubmit=async e=>{
@@ -741,7 +778,6 @@ function setStatusText(id,text){
 function renderStatus(data){
   const status=data.status||{};
   setStatusText('statusVersion',status.version||'—');
-  setStatusText('statusBuild',status.buildDate?(status.buildDate+' '+status.buildTime):'—');
   setStatusText('statusUptime',typeof status.uptimeSeconds==='number'?fmtUptime(status.uptimeSeconds):'—');
   const device=data.device||{};
   const network=device.network||{};
@@ -838,6 +874,7 @@ function resetWolForm(){
   document.getElementById('wolForm').reset();
   document.getElementById('wolFormTitle').textContent='➕ Добавить компьютер';
   document.getElementById('wolCancelBtn').classList.add('d-none');
+  setFormOpen('wolFormBody',false);
 }
 function editWol(key){
   const c=wolCache.find(x=>x.key===key);
@@ -849,6 +886,7 @@ function editWol(key){
   document.getElementById('wolBroadcast').value=c.broadcast||'255.255.255.255';
   document.getElementById('wolPort').value=c.port||9;
   document.getElementById('wolCancelBtn').classList.remove('d-none');
+  setFormOpen('wolFormBody',true);
   document.getElementById('wolFormTitle').scrollIntoView({behavior:'smooth',block:'start'});
 }
 document.getElementById('wolForm').onsubmit=async e=>{
