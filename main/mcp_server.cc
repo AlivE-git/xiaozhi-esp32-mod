@@ -35,8 +35,9 @@ constexpr const char* kReadOnlyNamespace = "mcp";
 constexpr const char* kReadOnlyKey = "read_only";
 
 // Used until the user saves the list from the Web UI.
-const char* const kDefaultReadOnlyTools[] = {"self.get_device_status", "self.radio.get_stations",
-                                            "self.timer.get_remaining", "self.rss.list_feeds"};
+const char* const kDefaultReadOnlyTools[] = {"self.radio.list_stations",
+                                            "self.timer.get_remaining",
+                                            "self.pc.list_computers"};
 
 std::set<std::string> DefaultReadOnlyTools() {
     std::set<std::string> names;
@@ -237,7 +238,7 @@ void McpServer::AddCommonTools() {
         AddTool("self.radio.play_station",
                 "Play a radio station by name. Station names are in Russian; names/keywords are "
                 "matched case-insensitively (partial match also works). Use "
-                "self.radio.get_stations to list all stations.",
+                "self.radio.list_stations to list all stations.",
                 PropertyList({Property("station_name", kPropertyTypeString)}),
                 [radio](const PropertyList& properties) -> ReturnValue {
                     auto station_name = properties["station_name"].value<std::string>();
@@ -245,7 +246,7 @@ void McpServer::AddCommonTools() {
                         return "Playing radio station: " + station_name;
                     }
                     return std::string(
-                        "Ошибка: станция не найдена. Используйте self.radio.get_stations для "
+                        "Ошибка: станция не найдена. Используйте self.radio.list_stations для "
                         "списка станций.");
                 });
         AddTool("self.radio.play_url",
@@ -263,7 +264,7 @@ void McpServer::AddCommonTools() {
                     radio->Stop();
                     return std::string("Stopping radio");
                 });
-        AddTool("self.radio.get_stations",
+        AddTool("self.radio.list_stations",
                 "List all available radio stations by name, with their keywords in brackets.",
                 PropertyList(), [radio](const PropertyList& properties) -> ReturnValue {
                     std::string response = "Available radio stations:\n";
@@ -399,7 +400,7 @@ void McpServer::AddCommonTools() {
                        "».";
             });
 
-    AddTool("self.pc.list",
+    AddTool("self.pc.list_computers",
             "List the computers saved for Wake-on-LAN with their names. Use it when the user "
             "asks which computers can be turned on or what their names are.",
             PropertyList(), [](const PropertyList& properties) -> ReturnValue {

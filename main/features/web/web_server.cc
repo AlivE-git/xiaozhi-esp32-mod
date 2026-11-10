@@ -11,7 +11,10 @@
 #include "features/wol/wol_web_api.h"
 #include "mcp_server.h"
 
+#include <esp_app_format.h>
 #include <esp_log.h>
+#include <esp_system.h>
+#include <esp_timer.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -1393,6 +1396,25 @@ esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
             return web::SendError(req, 500, "Out of memory");
         }
         cJSON_AddNumberToObject(root.get(), "volume", codec->output_volume());
+
+        // Status comes from data the device already has for the MCP status tool:
+        // the app descriptor, the heap and the board status JSON. No new route.
+        const esp_app_desc_t* app = esp_app_get_description();
+        cJSON* status = cJSON_AddObjectToObject(root.get(), "status");
+        if (status != nullptr && app != nullptr) {
+            cJSON_AddStringToObject(status, "version", app->version);
+            cJSON_AddStringToObject(status, "buildDate", app->date);
+            cJSON_AddStringToObject(status, "buildTime", app->time);
+            cJSON_AddNumberToObject(status, "uptimeSeconds",
+                                    static_cast<double>(esp_timer_get_time()) / 1000000.0);
+            cJSON_AddNumberToObject(status, "freeHeap", esp_get_free_heap_size());
+            cJSON_AddNumberToObject(status, "minFreeHeap", esp_get_minimum_free_heap_size());
+        }
+        CJsonUniquePtr device(cJSON_Parse(Board::GetInstance().GetDeviceStatusJson().c_str()));
+        if (device != nullptr) {
+            cJSON_AddItemToObject(root.get(), "device", device.release());
+        }
+
         CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
         return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
     }
