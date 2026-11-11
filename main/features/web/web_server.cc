@@ -117,7 +117,7 @@ body{background:#f1f4f8}
             placeholder="https://example.com/stream.mp3">
     </div>
     <div class="col-12">
-     <label class="form-label" for="aliasInput">Ключевые слова — дополнительные алиасы <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
+     <label class="form-label" for="aliasInput">Ключевые слова <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
      <div class="alias-chips" id="aliasChips"></div>
      <input id="aliasInput" class="form-control" autocomplete="off"
             placeholder="Слово и Enter — добавить">
@@ -136,7 +136,7 @@ body{background:#f1f4f8}
 <div class="card-header">📡 Станции</div>
 <div class="table-responsive">
 <table class="table table-hover align-middle mb-0">
-<thead class="table-dark"><tr><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
+<thead class="table-dark"><tr><th>Название</th><th>URL</th><th>Ключевые слова</th><th class="text-end">Действия</th></tr></thead>
 <tbody id="rows"></tbody>
 </table>
 </div>
@@ -212,7 +212,7 @@ body{background:#f1f4f8}
      <input id="feedUrl" class="form-control" type="url" required autocomplete="off" placeholder="https://lenta.ru/rss/news" maxlength="256">
     </div>
     <div class="col-12">
-     <label class="form-label" for="feedAliasInput">Ключевые слова — дополнительные алиасы <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
+     <label class="form-label" for="feedAliasInput">Ключевые слова <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
      <div class="alias-chips" id="feedAliasChips"></div>
      <input id="feedAliasInput" class="form-control" autocomplete="off"
             placeholder="Слово и Enter — добавить">
@@ -232,7 +232,7 @@ body{background:#f1f4f8}
  <div class="card-header">📡 Ленты</div>
  <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
-   <thead class="table-dark"><tr><th>Название</th><th>URL</th><th>Алиасы</th><th class="text-end">Действия</th></tr></thead>
+   <thead class="table-dark"><tr><th>Название</th><th>URL</th><th>Ключевые слова</th><th class="text-end">Действия</th></tr></thead>
    <tbody id="feedRows"></tbody>
   </table>
  </div>
@@ -319,7 +319,6 @@ body{background:#f1f4f8}
  <div class="card-header">⚙ Устройство</div>
  <div class="card-body d-flex flex-wrap gap-2 align-items-center">
   <button class="btn btn-outline-danger" type="button" id="rebootBtn">🔄 Перезагрузить</button>
-  <span class="text-muted small">Настройки в памяти устройства и в NVS сохраняются.</span>
  </div>
 </section>
 </div>
