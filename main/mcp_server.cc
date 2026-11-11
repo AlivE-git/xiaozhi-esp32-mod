@@ -29,7 +29,7 @@
 
 namespace {
 
-// The read-only skill list is a user setting: the Web UI "Система" tab writes it and
+// The read-only skill list is a user setting: the Web UI "Навыки" tab writes it and
 // it decides whether a finished skill ends the voice session.
 constexpr const char* kReadOnlyNamespace = "mcp";
 constexpr const char* kReadOnlyKey = "read_only";

@@ -100,11 +100,12 @@ body{background:#f1f4f8}
    <div class="row g-3">
     <div class="col-md-6">
      <label class="form-label" for="name">Название</label>
-     <input id="name" class="form-control" required autocomplete="off" maxlength="64">
+     <input id="name" class="form-control" required autocomplete="off" maxlength="64"
+            placeholder="Радио">
     </div>
     <div class="col-md-3">
      <label class="form-label" for="genre">Жанр</label>
-     <input id="genre" class="form-control" autocomplete="off" maxlength="64">
+     <input id="genre" class="form-control" autocomplete="off" maxlength="64" placeholder="Танцевальная">
     </div>
     <div class="col-md-3">
      <label class="form-label" for="volume">Громкость <span class="text-muted">(0.1–4.0)</span></label>
@@ -112,7 +113,8 @@ body{background:#f1f4f8}
     </div>
     <div class="col-12">
      <label class="form-label" for="url">Stream URL <span class="text-muted">(http/https)</span></label>
-     <input id="url" class="form-control" type="url" required autocomplete="off" maxlength="256">
+     <input id="url" class="form-control" type="url" required autocomplete="off" maxlength="256"
+            placeholder="https://example.com/stream.mp3">
     </div>
     <div class="col-12">
      <label class="form-label" for="aliasInput">Ключевые слова — дополнительные алиасы <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
@@ -197,19 +199,19 @@ body{background:#f1f4f8}
  <div class="card-body d-none" id="feedFormBody">
   <form id="feedForm">
    <div class="row g-3">
-    <div class="col-md-12">
-     <label class="form-label" for="feedName">Название <span class="text-muted">(как называть голосом)</span></label>
+    <div class="col-md-8">
+     <label class="form-label" for="feedName">Название</label>
      <input id="feedName" class="form-control" required autocomplete="off" placeholder="Лента" maxlength="64">
+    </div>
+    <div class="col-md-4">
+     <label class="form-label" for="feedCategory">Категория <span class="text-muted">(необязательно)</span></label>
+     <input id="feedCategory" class="form-control" autocomplete="off" placeholder="Новости" maxlength="64">
     </div>
     <div class="col-12">
      <label class="form-label" for="feedUrl">Адрес ленты <span class="text-muted">(RSS 2.0 или Atom, http/https)</span></label>
      <input id="feedUrl" class="form-control" type="url" required autocomplete="off" placeholder="https://lenta.ru/rss/news" maxlength="256">
     </div>
-    <div class="col-md-4">
-     <label class="form-label" for="feedCategory">Категория <span class="text-muted">(необязательно)</span></label>
-     <input id="feedCategory" class="form-control" autocomplete="off" placeholder="новости" maxlength="64">
-    </div>
-    <div class="col-md-8">
+    <div class="col-12">
      <label class="form-label" for="feedAliasInput">Ключевые слова — дополнительные алиасы <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
      <div class="alias-chips" id="feedAliasChips"></div>
      <input id="feedAliasInput" class="form-control" autocomplete="off"
@@ -483,7 +485,6 @@ function aliasEditor(inputId,chipsId,hintId){
     if(e.key==='Enter'||e.key===','){e.preventDefault();add();}
     else if(e.key==='Backspace'&&!input.value&&state.length){state.pop();render();}
   });
-  input.addEventListener('blur',()=>{if(input.value.trim())add();});
   capBytes(inputId,aliasMaxBytes);
   return {
     add,
