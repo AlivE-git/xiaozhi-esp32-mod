@@ -1,6 +1,9 @@
 ## IDF Component Manager Manifest File
 dependencies:
   joltwallet/littlefs: "~1.23.1"
+  # mDNS is a registry component, not part of the IDF tree: it announces the
+  # device hostname for the Web UI on the local network.
+  espressif/mdns: "^1.8.0"
   espressif/ip101:
     version: ^1.1.0
     rules:

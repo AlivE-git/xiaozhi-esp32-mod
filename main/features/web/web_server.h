@@ -58,7 +58,10 @@ public:
     // Starts httpd and registers the endpoints above plus those of the feature
     // modules. Safe to call again after a network restart: it is a no-op while
     // the server is running.
-    bool Start(int port = 8081);
+    // Port 80 is the plain-HTTP default, so the page opens from the bare device IP
+    // without typing a port. Serving it on 443 would need esp_https_server and a
+    // certificate, so it is not a drop-in replacement.
+    bool Start(int port = 80);
     void Stop();
 
     // Registers one endpoint of a feature module. Call it only while the server

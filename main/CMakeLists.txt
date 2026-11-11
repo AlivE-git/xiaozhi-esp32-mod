@@ -1214,6 +1214,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_pm
                         esp_psram
                         esp_http_server
+                        espressif__mdns
                         esp_netif
                         esp_eth
                         esp_driver_gpio

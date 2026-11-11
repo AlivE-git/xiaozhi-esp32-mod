@@ -11,8 +11,10 @@
 #include "features/timer/countdown_timer.h"
 #include "features/wol/wol_web_api.h"
 #include "mcp_server.h"
+#include "settings.h"
 
 #include <esp_app_desc.h>
+#include <mdns.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 
@@ -22,6 +24,80 @@
 #include <vector>
 
 #define TAG "WebServer"
+
+namespace {
+
+// The device is announced on the local network under a user-chosen name. The
+// name lives in NVS and is editable from the "Система" tab; the default is used
+// until it is changed.
+constexpr const char* kHostnameNamespace = "web";
+constexpr const char* kHostnameKey = "hostname";
+constexpr const char* kDefaultHostname = "xiaozhi";
+constexpr size_t kMaxHostnameLength = 32;
+
+bool mdns_running = false;
+int mdns_http_port = 80;
+
+// Host labels allow letters, digits and inner hyphens only, and a dot would claim
+// a subdomain, so everything else becomes a hyphen and the edges are trimmed.
+std::string SanitizeHostname(const std::string& raw) {
+    std::string name;
+    for (char c : raw) {
+        unsigned char u = static_cast<unsigned char>(c);
+        if (u >= 'A' && u <= 'Z') {
+            name += static_cast<char>(u - 'A' + 'a');
+        } else if ((u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || c == '-') {
+            name += c;
+        } else if (c == ' ' || c == '_' || c == '.') {
+            name += '-';
+        }
+        if (name.size() >= kMaxHostnameLength) {
+            break;
+        }
+    }
+    while (!name.empty() && name.front() == '-') {
+        name.erase(name.begin());
+    }
+    while (!name.empty() && name.back() == '-') {
+        name.pop_back();
+    }
+    return name;
+}
+
+std::string LoadHostname() {
+    Settings settings(kHostnameNamespace);
+    const std::string saved = SanitizeHostname(settings.GetString(kHostnameKey));
+    return saved.empty() ? std::string(kDefaultHostname) : saved;
+}
+
+bool SaveHostname(const std::string& name) {
+    Settings settings(kHostnameNamespace, /*read_write=*/true);
+    return settings.SetString(kHostnameKey, name);
+}
+
+// Starts or restarts the announcement under the saved name. Cheap enough to run
+// on every change: the service is torn down and published again.
+void StartMdns(int http_port) {
+    mdns_http_port = http_port;
+    if (mdns_running) {
+        mdns_free();
+        mdns_running = false;
+    }
+    if (mdns_init() != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS init failed, the page stays reachable by IP only");
+        return;
+    }
+    const std::string hostname = LoadHostname();
+    if (mdns_hostname_set(hostname.c_str()) != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS hostname rejected: %s", hostname.c_str());
+    }
+    mdns_instance_name_set("XiaoZhi");
+    mdns_service_add(nullptr, "_http", "_tcp", static_cast<uint16_t>(http_port), nullptr, 0);
+    mdns_running = true;
+    ESP_LOGI(TAG, "Announcing device name %s on port %d", hostname.c_str(), http_port);
+}
+
+}  // namespace
 
 namespace {
 
@@ -301,6 +377,21 @@ body{background:#f1f4f8}
    <input id="volumeSlider" type="range" class="form-range mb-0 flex-grow-1"
           min="0" max="100" step="1" value="70">
   </div>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">🌐 Имя в сети</div>
+ <div class="card-body">
+  <div class="row g-2 align-items-end">
+   <div class="col-sm-8">
+    <input id="hostnameInput" class="form-control" autocomplete="off" maxlength="32" placeholder="xiaozhi">
+   </div>
+   <div class="col-sm-4 d-grid">
+    <button class="btn btn-primary" type="button" id="hostnameSaveBtn">Сохранить</button>
+   </div>
+  </div>
+  <div class="form-text" id="hostnameHint">Открывается как http://xiaozhi. После изменения перезагрузите устройство.</div>
  </div>
 </section>
 
@@ -858,6 +949,9 @@ function renderStatus(data){
     if(typeof network.rssi==='number')wifi+=' · '+network.rssi+' dBm · '+signalLabel(network.rssi);
   }
   setStatusText('statusWifi',wifi);
+  const hostname=status.hostname||'xiaozhi';
+  const hostInput=document.getElementById('hostnameInput');
+  if(hostInput&&document.activeElement!==hostInput)hostInput.value=hostname;
   const storage=status.storage||{};
   const storageBar=document.getElementById('statusStorageBar');
   const storageText=document.getElementById('statusStorageText');
@@ -897,6 +991,25 @@ async function rebootDevice(){
   const res=await r.json().catch(()=>({}));
   msg(r.ok?'Устройство перезагружается…':'Не удалось перезагрузить: '+(res.error||r.status),r.ok);
 }
+document.getElementById('hostnameSaveBtn').onclick=async()=>{
+  const btn=document.getElementById('hostnameSaveBtn');
+  const value=(document.getElementById('hostnameInput').value||'').trim();
+  if(!value){msg('Укажите имя',false);return;}
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/system',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({hostname:value})});
+    const res=await r.json().catch(()=>({}));
+    if(r.ok){
+      const name=res.hostname||value;
+      document.getElementById('hostnameInput').value=name;
+      msg('Имя сохранено: '+name+'. Перезагрузите устройство.',true);
+    }else{
+      msg('Не удалось сохранить имя: '+(res.error||r.status),false);
+    }
+  }catch(e){msg('Не удалось сохранить имя: устройство недоступно',false);}
+  finally{btn.disabled=false;}
+};
 document.getElementById('volumeSlider').oninput=e=>{
   document.getElementById('volumeValue').textContent=e.target.value;
 };
@@ -1192,6 +1305,9 @@ bool WebServer::Start(int port) {
         server_handle_ = nullptr;
         return false;
     }
+
+    // Announce the device name on the network as well.
+    StartMdns(port);
 
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = PageHandler, .user_ctx = nullptr},
@@ -1634,6 +1750,7 @@ esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
             cJSON_AddStringToObject(status, "buildTime", app->time);
             cJSON_AddNumberToObject(status, "uptimeSeconds",
                                     static_cast<double>(esp_timer_get_time()) / 1000000.0);
+            cJSON_AddStringToObject(status, "hostname", LoadHostname().c_str());
         }
         // Bytes used on the storage partition, so the page shows how full the
         // files with the radio, RSS and Wake-on-LAN lists are.
@@ -1655,12 +1772,33 @@ esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
         return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
     }
 
-    // POST carries {"volume":0..100}; the value applies to the speaker at once.
+    // POST carries {"volume":0..100} and/or {"hostname":"..."}; both apply at once.
     std::string body;
     if (!web::ReadJsonBody(req, body)) {
         return ESP_OK;
     }
     CJsonUniquePtr root(cJSON_Parse(body.c_str()));
+    cJSON* hostname = root != nullptr ? cJSON_GetObjectItem(root.get(), "hostname") : nullptr;
+    if (cJSON_IsString(hostname)) {
+        const std::string name = SanitizeHostname(hostname->valuestring);
+        if (name.empty()) {
+            return web::SendError(req, 400,
+                                  "Имя должно состоять из латинских букв, цифр и дефисов");
+        }
+        if (!SaveHostname(name)) {
+            return web::SendError(req, 500, "Не удалось сохранить имя");
+        }
+        ESP_LOGI(TAG, "Hostname changed to %s", name.c_str());
+        StartMdns(mdns_http_port);
+        CJsonUniquePtr result(cJSON_CreateObject());
+        if (result == nullptr) {
+            return web::SendError(req, 500, "Out of memory");
+        }
+        cJSON_AddBoolToObject(result.get(), "ok", true);
+        cJSON_AddStringToObject(result.get(), "hostname", name.c_str());
+        CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
+        return web::SendJson(req, 200, text != nullptr ? text.get() : "{\"ok\":true}");
+    }
     cJSON* volume = root != nullptr ? cJSON_GetObjectItem(root.get(), "volume") : nullptr;
     if (!cJSON_IsNumber(volume)) {
         return web::SendError(req, 400, "Expected a \"volume\" number");
