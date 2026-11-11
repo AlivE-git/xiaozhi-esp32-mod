@@ -8,6 +8,7 @@
 
 #include <esp_log.h>
 
+#include <cstdio>
 #include <cctype>
 #include <cstring>
 #include <map>
@@ -43,30 +44,22 @@ std::vector<std::string> SplitAliases(const std::string& value) {
     return aliases;
 }
 
-// Keys are the internal identity of the list, the page does not show them, so a
-// station or a file without one gets a key made from its name: "Маяк" -> "ST".
+// Keys are the internal identity of the list and the page never shows them.
+// They are handed out as ST001, ST002 ... so the std::map that holds the
+// stations keeps the order the list was imported or filled in, instead of
+// sorting by whatever ASCII letters a station name happens to contain.
 std::string MakeStationKey(const std::string& name,
                            const std::map<std::string, RadioStation>& existing) {
-    std::string base;
-    for (char c : name) {
-        const unsigned char u = static_cast<unsigned char>(c);
-        if (std::isalnum(u) && u < 0x80) {
-            base.push_back(static_cast<char>(std::toupper(u)));
-        } else if (c == '_' || c == '-') {
-            base.push_back(c);
-        }
-        if (base.size() >= 24) {
-            break;
+    (void)name;
+    for (int i = 1; i < 1000; ++i) {
+        char suffix[8];
+        snprintf(suffix, sizeof(suffix), "%03d", i);
+        std::string key = std::string("ST") + suffix;
+        if (existing.count(key) == 0) {
+            return key;
         }
     }
-    if (base.empty()) {
-        base = "ST";
-    }
-    std::string key = base;
-    for (int i = 2; existing.count(key) > 0 && i < 1000; ++i) {
-        key = base + std::to_string(i);
-    }
-    return key;
+    return "";
 }
 
 bool StationFromJson(cJSON* root, std::string* key, RadioStation* station) {
@@ -229,8 +222,8 @@ esp_err_t HandleImport(httpd_req_t* req) {
             return web::SendError(req, 400,
                                   "Invalid station entry: name and url are required");
         }
-        // Exports carry keys; a file edited by hand may not, and duplicate keys
-        // are regenerated instead of failing the whole import.
+        // The export carries the keys, and keeping them is what preserves the
+        // order of the imported file; only a missing or duplicate key is made.
         if (key.empty() || imported.count(key) > 0) {
             key = MakeStationKey(station.name, imported);
         }

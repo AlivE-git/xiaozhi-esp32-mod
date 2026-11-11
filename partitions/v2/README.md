@@ -37,8 +37,8 @@ The `assets` partition stores:
 - `phy_init`: 4KB (PHY initialization data)
 - `ota_0`: 4MB (application partition 0)
 - `ota_1`: 4MB (application partition 1)
-- `assets`: 7.5MB (network-loadable assets)
-- `storage`: 512KB (LittleFS partition for user lists)
+- `assets`: 7.875MB (network-loadable assets)
+- `storage`: 128KB (LittleFS partition for user lists)
 
 ## Available Configurations
 
@@ -56,8 +56,8 @@ The `assets` partition stores:
 - `phy_init`: 4KB
 - `ota_0`: 4MB
 - `ota_1`: 4MB
-- `assets`: 7.5MB
-- `storage`: 512KB (LittleFS: radio stations, RSS feeds and Wake-on-LAN computers)
+- `assets`: 7.875MB
+- `storage`: 128KB (LittleFS: radio stations, RSS feeds and Wake-on-LAN computers)
 
 ### 16MB Flash Devices (`16m_c3.csv`) - ESP32-C3 Optimized
 - `nvs`: 16KB

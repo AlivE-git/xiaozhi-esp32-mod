@@ -8,6 +8,7 @@
 #include <esp_random.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -452,28 +453,20 @@ bool RssReader::GetFeed(const std::string& key, RssFeed* feed) const {
     return true;
 }
 
+// Padded running numbers, as on the radio: the std::map then sorts
+// FEED001, FEED002 ... FEED016 in the order the feeds were added.
 std::string RssReader::MakeKey(const std::string& name,
                                const std::map<std::string, RssFeed>& existing) {
-    std::string base;
-    for (char c : name) {
-        unsigned char u = static_cast<unsigned char>(c);
-        if (std::isalnum(u) && u < 0x80) {
-            base.push_back(static_cast<char>(std::toupper(u)));
-        } else if (c == '_' || c == '-') {
-            base.push_back(c);
-        }
-        if (base.size() >= 24) {
-            break;
+    (void)name;
+    for (int i = 1; i < 1000; ++i) {
+        char suffix[8];
+        snprintf(suffix, sizeof(suffix), "%03d", i);
+        std::string key = std::string("FEED") + suffix;
+        if (existing.count(key) == 0) {
+            return key;
         }
     }
-    if (base.empty()) {
-        base = "FEED";
-    }
-    std::string key = base;
-    for (int i = 2; existing.count(key) > 0 && i < 1000; ++i) {
-        key = base + std::to_string(i);
-    }
-    return key;
+    return "";
 }
 
 std::string RssReader::MakeUniqueKeyLocked(const std::string& name) const {
@@ -613,8 +606,8 @@ bool RssReader::ReplaceFeeds(const std::vector<std::pair<std::string, RssFeed>>&
                              int* imported, std::string& error) {
     error.clear();
     std::map<std::string, RssFeed> next;
-    for (const auto& [raw_key, raw_feed] : feeds) {
-        RssFeed feed = raw_feed;
+    for (const auto& entry : feeds) {
+        RssFeed feed = entry.second;
         NormalizeFeed(&feed);
         if (!IsValidFeed(feed)) {
             error = "Лента без названия или с неверным адресом: " +
@@ -625,13 +618,9 @@ bool RssReader::ReplaceFeeds(const std::vector<std::pair<std::string, RssFeed>>&
             error = "Слишком много лент: не больше " + std::to_string(kMaxFeeds);
             return false;
         }
-        const std::string key_in = Trim(raw_key);
-        std::string key = key_in.empty() ? MakeKey(feed.name, next) : key_in;
-        if (!IsValidKey(key)) {
-            error = "Неверный ключ ленты: " + key + " (латиница, цифры, _ и -, до 32)";
-            return false;
-        }
-        if (next.count(key) > 0) {
+        // The export carries the keys; keeping them preserves the file order.
+        std::string key = Trim(entry.first);
+        if (key.empty() || !IsValidKey(key) || next.count(key) > 0) {
             key = MakeKey(feed.name, next);
         }
         next[key] = std::move(feed);
