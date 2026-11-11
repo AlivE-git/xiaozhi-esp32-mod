@@ -1,0 +1,320 @@
+{
+  "feeds": [
+    {
+      "key": "FEED001",
+      "name": "РИА Новости",
+      "url": "https://ria.ru/export/rss2/index.xml",
+      "category": "Новости",
+      "aliases": [
+        "новости",
+        "рия",
+        "россия",
+        "главные новости"
+      ]
+    },
+    {
+      "key": "FEED002",
+      "name": "ТАСС",
+      "url": "https://tass.ru/rss/v2.xml",
+      "category": "Новости",
+      "aliases": [
+        "тасс",
+        "новости россии"
+      ]
+    },
+    {
+      "key": "FEED003",
+      "name": "Лента.ру",
+      "url": "https://lenta.ru/rss",
+      "category": "Новости",
+      "aliases": [
+        "лента",
+        "лента ру"
+      ]
+    },
+    {
+      "key": "FEED004",
+      "name": "РБК",
+      "url": "https://rssexport.rbc.ru/rbcnews/news/30/full.rss",
+      "category": "Новости",
+      "aliases": [
+        "рбк",
+        "деловые новости"
+      ]
+    },
+    {
+      "key": "FEED005",
+      "name": "Коммерсантъ",
+      "url": "https://www.kommersant.ru/RSS/main.xml",
+      "category": "Новости",
+      "aliases": [
+        "коммерсант",
+        "коммерсантъ"
+      ]
+    },
+    {
+      "key": "FEED006",
+      "name": "Интерфакс",
+      "url": "https://www.interfax.ru/rss.asp",
+      "category": "Новости",
+      "aliases": [
+        "интерфакс"
+      ]
+    },
+    {
+      "key": "FEED007",
+      "name": "Известия",
+      "url": "https://iz.ru/xml/rss/all.xml",
+      "category": "Новости",
+      "aliases": [
+        "известия"
+      ]
+    },
+    {
+      "key": "FEED008",
+      "name": "Российская газета",
+      "url": "https://rg.ru/xml/index.xml",
+      "category": "Новости",
+      "aliases": [
+        "рг"
+      ]
+    },
+    {
+      "key": "FEED009",
+      "name": "Ведомости",
+      "url": "https://www.vedomosti.ru/rss/news",
+      "category": "Экономика",
+      "aliases": [
+        "ведомости",
+        "экономика",
+        "бизнес"
+      ]
+    },
+    {
+      "key": "FEED010",
+      "name": "Банк России",
+      "url": "https://www.cbr.ru/rss/RssNews",
+      "category": "Финансы",
+      "aliases": [
+        "центробанк",
+        "банк россии",
+        "финансы"
+      ]
+    },
+    {
+      "key": "FEED011",
+      "name": "VC.ru",
+      "url": "https://vc.ru/rss/",
+      "category": "Бизнес",
+      "aliases": [
+        "виси",
+        "стартапы"
+      ]
+    },
+    {
+      "key": "FEED012",
+      "name": "Хабр",
+      "url": "https://habr.com/ru/rss/all/all/",
+      "category": "Технологии",
+      "aliases": [
+        "хабр",
+        "айти",
+        "программирование",
+        "технологии"
+      ]
+    },
+    {
+      "key": "FEED013",
+      "name": "iXBT",
+      "url": "https://www.ixbt.com/export/rss.xml",
+      "category": "Технологии",
+      "aliases": [
+        "иксбит",
+        "железо",
+        "компьютеры",
+        "гаджеты"
+      ]
+    },
+    {
+      "key": "FEED014",
+      "name": "3DNews",
+      "url": "https://3dnews.ru/news/rss/",
+      "category": "Технологии",
+      "aliases": [
+        "3дньюс"
+      ]
+    },
+    {
+      "key": "FEED015",
+      "name": "OpenNet",
+      "url": "https://www.opennet.ru/opennews/opennews_all.rss",
+      "category": "Технологии",
+      "aliases": [
+        "опеннет",
+        "линукс",
+        "опенсорс",
+        "открытый код"
+      ]
+    },
+    {
+      "key": "FEED016",
+      "name": "4PDA",
+      "url": "https://4pda.to/feed/",
+      "category": "Технологии",
+      "aliases": [
+        "4пда",
+        "смартфоны"
+      ]
+    },
+    {
+      "key": "FEED017",
+      "name": "Tproger",
+      "url": "https://tproger.ru/feed/",
+      "category": "Программирование",
+      "aliases": [
+        "типро́гер",
+        "разработка",
+        "код",
+        "программисты"
+      ]
+    },
+    {
+      "key": "FEED018",
+      "name": "N+1",
+      "url": "https://nplus1.ru/rss",
+      "category": "Наука",
+      "aliases": [
+        "эн плюс один",
+        "наука",
+        "открытия"
+      ]
+    },
+    {
+      "key": "FEED019",
+      "name": "Naked Science",
+      "url": "https://naked-science.ru/feed/",
+      "category": "Наука",
+      "aliases": [
+        "нейкед сайенс",
+        "научные новости",
+        "исследования"
+      ]
+    },
+    {
+      "key": "FEED020",
+      "name": "Sports.ru",
+      "url": "https://www.sports.ru/rss/all_news.xml",
+      "category": "Спорт",
+      "aliases": [
+        "спорт",
+        "спортс ру"
+      ]
+    },
+    {
+      "key": "FEED021",
+      "name": "Чемпионат",
+      "url": "https://www.championat.com/rss/news/",
+      "category": "Спорт",
+      "aliases": [
+        "чемпионат",
+        "футбол",
+        "хоккей"
+      ]
+    },
+    {
+      "key": "FEED022",
+      "name": "GoHa — Все новости",
+      "url": "https://www.goha.ru/rss/news",
+      "category": "Игры",
+      "aliases": [
+        "гоха",
+        "игровые новости",
+        "игры"
+      ]
+    },
+    {
+      "key": "FEED023",
+      "name": "GoHa — Статьи",
+      "url": "https://www.goha.ru/rss/articles",
+      "category": "Игры",
+      "aliases": [
+        "статьи гоха",
+        "игровые обзоры"
+      ]
+    },
+    {
+      "key": "FEED024",
+      "name": "GoHa — MMORPG",
+      "url": "https://www.goha.ru/rss/mmorpg",
+      "category": "MMORPG",
+      "aliases": [
+        "мморпг",
+        "онлайн игры",
+        "ммо"
+      ]
+    },
+    {
+      "key": "FEED025",
+      "name": "GoHa — Видеоигры",
+      "url": "https://www.goha.ru/rss/videogames",
+      "category": "Игры",
+      "aliases": [
+        "видеоигры",
+        "игры на пк"
+      ]
+    },
+    {
+      "key": "FEED026",
+      "name": "GoHa — Аниме",
+      "url": "https://www.goha.ru/rss/anime",
+      "category": "Аниме",
+      "aliases": [
+        "аниме",
+        "манга"
+      ]
+    },
+    {
+      "key": "FEED027",
+      "name": "GoHa — Железная кухня",
+      "url": "https://www.goha.ru/rss/hardware",
+      "category": "Компьютеры",
+      "aliases": [
+        "железо",
+        "видеокарты",
+        "процессоры",
+        "комплектующие"
+      ]
+    },
+    {
+      "key": "FEED028",
+      "name": "GoHa — Игровая индустрия",
+      "url": "https://www.goha.ru/rss/industry",
+      "category": "Игровая индустрия",
+      "aliases": [
+        "разработчики игр",
+        "игровой бизнес"
+      ]
+    },
+    {
+      "key": "FEED029",
+      "name": "GoHa — Кино и сериалы",
+      "url": "https://www.goha.ru/rss/movies-tvshows",
+      "category": "Кино",
+      "aliases": [
+        "кино",
+        "сериалы",
+        "фильмы"
+      ]
+    },
+    {
+      "key": "FEED030",
+      "name": "GoHa — Мобильные игры",
+      "url": "https://www.goha.ru/rss/mobile-games",
+      "category": "Мобильные игры",
+      "aliases": [
+        "мобильные игры",
+        "игры на телефон"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,360 @@
+{
+  "stations": [
+    {
+      "key": "ST001",
+      "name": "Дорожное радио",
+      "url": "http://dorognoe.hostingradio.ru:8000/dorognoe",
+      "genre": "Авто",
+      "volume": 1,
+      "aliases": [
+        "дорожное",
+        "дорога",
+        "dorognoe"
+      ]
+    },
+    {
+      "key": "ST002",
+      "name": "Европа Плюс",
+      "url": "http://ep128server.streamr.ru:8030/ep128",
+      "genre": "Поп",
+      "volume": 1,
+      "aliases": [
+        "европа",
+        "европа плюс",
+        "europa plus",
+        "europaplus"
+      ]
+    },
+    {
+      "key": "ST003",
+      "name": "Русское Радио",
+      "url": "https://rusradio.hostingradio.ru/rusradio96.aacp",
+      "genre": "Поп",
+      "volume": 1,
+      "aliases": [
+        "русское",
+        "русское радио",
+        "rusradio"
+      ]
+    },
+    {
+      "key": "ST004",
+      "name": "Ретро FM",
+      "url": "http://retroserver.streamr.ru:8043/retro128",
+      "genre": "Ретро",
+      "volume": 1,
+      "aliases": [
+        "ретро",
+        "ретро фм",
+        "retro"
+      ]
+    },
+    {
+      "key": "ST005",
+      "name": "Вести FM",
+      "url": "http://icecast.vgtrk.cdnvideo.ru/vestifm",
+      "genre": "Новости",
+      "volume": 1,
+      "aliases": [
+        "вести",
+        "вести фм",
+        "vesti"
+      ]
+    },
+    {
+      "key": "ST006",
+      "name": "Радио Дача",
+      "url": "http://listen13.vdfm.ru:8000/dacha",
+      "genre": "Поп",
+      "volume": 1,
+      "aliases": [
+        "дача",
+        "радио дача",
+        "dacha"
+      ]
+    },
+    {
+      "key": "ST007",
+      "name": "Радио Шансон",
+      "url": "http://chanson.hostingradio.ru:8041/chanson256.mp3",
+      "genre": "Шансон",
+      "volume": 1,
+      "aliases": [
+        "шансон",
+        "chanson"
+      ]
+    },
+    {
+      "key": "ST008",
+      "name": "Радио Маяк",
+      "url": "http://icecast.vgtrk.cdnvideo.ru/mayakfm_mp3_192kbps",
+      "genre": "Разговорное",
+      "volume": 1,
+      "aliases": [
+        "маяк",
+        "радио маяк",
+        "mayak"
+      ]
+    },
+    {
+      "key": "ST009",
+      "name": "Радио Монте-Карло",
+      "url": "https://mc-mcgold.hostingradio.ru/mcgold96.aacp",
+      "genre": "Лёгкая музыка",
+      "volume": 1,
+      "aliases": [
+        "монте карло",
+        "monte carlo"
+      ]
+    },
+    {
+      "key": "ST010",
+      "name": "Радио России",
+      "url": "http://icecast.vgtrk.cdnvideo.ru/rrzonam_mp3_128kbps",
+      "genre": "Разговорное",
+      "volume": 1,
+      "aliases": [
+        "радио россии",
+        "россия",
+        "radio russia"
+      ]
+    },
+    {
+      "key": "ST011",
+      "name": "Хит FM",
+      "url": "https://hitfm.hostingradio.ru/hitfm128.mp3?48c22b78",
+      "genre": "Поп",
+      "volume": 1,
+      "aliases": [
+        "хит",
+        "хит фм",
+        "hit fm",
+        "hitfm"
+      ]
+    },
+    {
+      "key": "ST012",
+      "name": "Наше Радио",
+      "url": "http://nashe.streamr.ru/nashe-128.mp3",
+      "genre": "Рок",
+      "volume": 1,
+      "aliases": [
+        "наше",
+        "наше радио",
+        "nashe"
+      ]
+    },
+    {
+      "key": "ST013",
+      "name": "Юмор FM",
+      "url": "http://pub0101.101.ru:8000/stream/air/aac/64/102",
+      "genre": "Юмор",
+      "volume": 1,
+      "aliases": [
+        "юмор",
+        "юмор fm",
+        "humor"
+      ]
+    },
+    {
+      "key": "ST014",
+      "name": "DFM",
+      "url": "https://dfm.hostingradio.ru/dfm96.aacp",
+      "genre": "Танцевальная",
+      "volume": 1,
+      "aliases": [
+        "dfm",
+        "ди эф эм"
+      ]
+    },
+    {
+      "key": "ST015",
+      "name": "Радио 7 на семи холмах",
+      "url": "http://radio7server.streamr.ru:8040/radio7256.mp3",
+      "genre": "Поп",
+      "volume": 1,
+      "aliases": [
+        "радио 7",
+        "радио семь",
+        "radio 7"
+      ]
+    },
+    {
+      "key": "ST016",
+      "name": "Радио ULTRA",
+      "url": "http://nashe2.hostingradio.ru/ultra-128.mp3",
+      "genre": "Альтернативный рок",
+      "volume": 1,
+      "aliases": [
+        "ultra",
+        "ультра",
+        "радио ультра"
+      ]
+    },
+    {
+      "key": "ST017",
+      "name": "Русский Рок",
+      "url": "http://rock.volna.top/RusRock",
+      "genre": "Рок",
+      "volume": 1,
+      "aliases": [
+        "русский рок",
+        "russian rock",
+        "rusrock"
+      ]
+    },
+    {
+      "key": "ST018",
+      "name": "Радио Джаз",
+      "url": "http://jazz.streamr.ru/jazz-128.mp3",
+      "genre": "Джаз",
+      "volume": 1,
+      "aliases": [
+        "джаз",
+        "radio jazz",
+        "jazz"
+      ]
+    },
+    {
+      "key": "ST019",
+      "name": "Instrumental Jazz",
+      "url": "https://jfm1.hostingradio.ru:14536/ijstream.mp3",
+      "genre": "Инструментальный джаз",
+      "volume": 1,
+      "aliases": [
+        "instrumental jazz",
+        "джаз"
+      ]
+    },
+    {
+      "key": "ST020",
+      "name": "Radio Caprice Classical Piano",
+      "url": "http://79.120.39.202:9069/;",
+      "genre": "Классика",
+      "volume": 1,
+      "aliases": [
+        "классика",
+        "пианино",
+        "piano"
+      ]
+    },
+    {
+      "key": "ST021",
+      "name": "Radio Caprice Death Metal",
+      "url": "http://79.120.77.11:9083/",
+      "genre": "Метал",
+      "volume": 1,
+      "aliases": [
+        "death metal",
+        "дэт метал",
+        "метал"
+      ]
+    },
+    {
+      "key": "ST022",
+      "name": "Radio Caprice Power Metal",
+      "url": "http://79.120.77.11:9099/",
+      "genre": "Метал",
+      "volume": 1,
+      "aliases": [
+        "power metal",
+        "пауэр метал"
+      ]
+    },
+    {
+      "key": "ST023",
+      "name": "Mixadance FM",
+      "url": "https://stream.mixadance.fm/mixadance",
+      "genre": "Танцевальная",
+      "volume": 1,
+      "aliases": [
+        "mixadance",
+        "миксаданc",
+        "dance"
+      ]
+    },
+    {
+      "key": "ST024",
+      "name": "DFM Trance",
+      "url": "https://dfm-trance.hostingradio.ru/trance96.aacp",
+      "genre": "Транс",
+      "volume": 1,
+      "aliases": [
+        "dfm trance",
+        "транс",
+        "trance"
+      ]
+    },
+    {
+      "key": "ST025",
+      "name": "Enigmatic 3",
+      "url": "http://radio.enigmatic.su:8050/radio",
+      "genre": "Чилаут",
+      "volume": 1,
+      "aliases": [
+        "enigmatic",
+        "энегматик",
+        "chillout"
+      ]
+    },
+    {
+      "key": "ST026",
+      "name": "Relax FM Nature",
+      "url": "https://pub0101.101.ru/stream/trust/mp3/128/263",
+      "genre": "Релакс",
+      "volume": 1,
+      "aliases": [
+        "relax",
+        "релакс",
+        "nature"
+      ]
+    },
+    {
+      "key": "ST027",
+      "name": "Radio Caprice Roots Reggae",
+      "url": "http://79.111.119.111:9047/",
+      "genre": "Регги",
+      "volume": 1,
+      "aliases": [
+        "reggae",
+        "регги",
+        "roots reggae"
+      ]
+    },
+    {
+      "key": "ST028",
+      "name": "Радио Культура",
+      "url": "http://icecast.vgtrk.cdnvideo.ru/kulturafm_mp3_192kbps",
+      "genre": "Культура",
+      "volume": 1,
+      "aliases": [
+        "культура",
+        "radio kultura"
+      ]
+    },
+    {
+      "key": "ST029",
+      "name": "Radio Record Synthwave",
+      "url": "http://radiorecord.hostingradio.ru/synth96.aacp",
+      "genre": "Синтвейв",
+      "volume": 1,
+      "aliases": [
+        "synthwave",
+        "синтвейв",
+        "record synthwave"
+      ]
+    },
+    {
+      "key": "ST030",
+      "name": "Радио Ретроклуб",
+      "url": "http://retroclub.hostingradio.ru/retroclub128.aacp",
+      "genre": "Ретро",
+      "volume": 1,
+      "aliases": [
+        "ретроклуб",
+        "retro club",
+        "retroclub"
+      ]
+    }
+  ]
+}
