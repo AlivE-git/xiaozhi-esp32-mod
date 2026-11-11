@@ -42,9 +42,9 @@ public:
     // Feed keys are storage identities: 1-32 chars of A-Z a-z 0-9 _ -.
     static bool IsValidKey(const std::string& key);
 
-    // Resolves a user-spoken name ("лента", "РИА") to a feed key; empty if unknown.
-    // Aliases, then the name, then a unique category match are tried; the key
-    // itself is an internal identity and is never matched.
+    // Resolves a user-spoken name ("лента", "РИА") to a feed key; empty when the
+    // query is empty or unknown. Aliases, then the name, then a category match
+    // are tried; the key itself is an internal identity and is never matched.
     std::string ResolveFeedKey(const std::string& query) const;
 
     // Adds a feed and returns its key. An empty `key` is generated from the feed
@@ -64,9 +64,9 @@ public:
     bool FetchFeed(const std::string& key, int count, std::vector<RssItem>& items,
                    std::string& error);
 
-    // Newest entries from one feed (or from every feed when `feed_query` is
-    // empty or "all"), at most `count` in total. "feed" in the result is the
-    // feed display name.
+    // Newest entries from the one feed named by `feed_query` (1-20). "feed" in
+    // the result is the feed display name. An empty query is not a wildcard: it
+    // resolves to nothing and fills `errors` instead.
     bool FetchLatest(const std::string& feed_query, int count,
                      std::vector<std::pair<std::string, RssItem>>& items,
                      std::vector<std::string>& errors);

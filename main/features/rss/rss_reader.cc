@@ -17,8 +17,6 @@
 
 namespace {
 
-constexpr int kMaxFeeds = 16;
-constexpr int kMaxFeedsPerRequest = 4;
 constexpr size_t kMaxFeedBytes = 256 * 1024;
 constexpr int kFetchTimeoutMs = 8000;
 constexpr size_t kMaxTitleBytes = 300;
@@ -479,7 +477,9 @@ std::string RssReader::ResolveFeedKeyLocked(const std::string& query) const {
     }
     const std::string needle = ToLowerAscii(Trim(query));
     if (needle.empty()) {
-        return feeds_.begin()->first;
+        // There is no default feed: an empty query has to stay unresolved, so the
+        // assistant asks which feed to read instead of picking one at random.
+        return "";
     }
     // Same order as the radio: aliases first, then the name, both by substring.
     // Keys are internal identities and never take part in the search.
@@ -548,9 +548,6 @@ bool RssReader::AddFeed(const RssFeed& feed_in, const std::string& key_in,
         return false;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    if (static_cast<int>(feeds_.size()) >= kMaxFeeds) {
-        return false;
-    }
     std::string key = Trim(key_in);
     if (key.empty()) {
         key = MakeUniqueKeyLocked(feed.name);
@@ -612,10 +609,6 @@ bool RssReader::ReplaceFeeds(const std::vector<std::pair<std::string, RssFeed>>&
         if (!IsValidFeed(feed)) {
             error = "Лента без названия или с неверным адресом: " +
                     (feed.name.empty() ? feed.url : feed.name);
-            return false;
-        }
-        if (static_cast<int>(next.size()) >= kMaxFeeds) {
-            error = "Слишком много лент: не больше " + std::to_string(kMaxFeeds);
             return false;
         }
         // The export carries the keys; keeping them preserves the file order.
@@ -721,58 +714,41 @@ bool RssReader::FetchLatest(const std::string& feed_query, int count,
     items.clear();
     errors.clear();
 
-    std::vector<std::string> keys;
+    // One named feed per request: there is no "read everything" mode, so an
+    // empty or unknown query returns an error instead of picking a source.
+    std::string key;
+    RssFeed feed;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (feeds_.empty()) {
             errors.push_back("Ленты не настроены");
             return false;
         }
-        const std::string query = Trim(feed_query);
-        if (query.empty() || ToLowerAscii(query) == "all") {
-            for (const auto& [key, feed] : feeds_) {
-                keys.push_back(key);
-                if (static_cast<int>(keys.size()) >= kMaxFeedsPerRequest) {
-                    break;
+        key = ResolveFeedKeyLocked(feed_query);
+        if (key.empty()) {
+            std::string names;
+            for (const auto& [feed_key, feed_value] : feeds_) {
+                if (!names.empty()) {
+                    names += ", ";
                 }
+                names += feed_value.name;
             }
-        } else {
-            const std::string key = ResolveFeedKeyLocked(query);
-            if (key.empty()) {
-                errors.push_back("Лента не найдена");
-                return false;
-            }
-            keys.push_back(key);
+            errors.push_back("Укажите ленту. Доступные RSS-ленты: " + names);
+            return false;
         }
+        feed = feeds_.at(key);
     }
 
-    // Spread the requested number of headlines over the feeds so that reading
-    // "all" stays fast instead of paginating through every feed.
-    const int per_feed = std::max(1, count / static_cast<int>(keys.size()) + 1);
-    bool any = false;
-    for (const auto& key : keys) {
-        RssFeed feed;
-        if (!GetFeed(key, &feed)) {
-            continue;
-        }
-        std::vector<RssItem> feed_items;
-        std::string error;
-        if (!FetchFeed(key, std::min(per_feed, count), feed_items, error)) {
-            errors.push_back(feed.name + ": " + error);
-            continue;
-        }
-        any = true;
-        for (auto& item : feed_items) {
-            if (static_cast<int>(items.size()) >= count) {
-                break;
-            }
-            items.emplace_back(feed.name, std::move(item));
-        }
-        if (static_cast<int>(items.size()) >= count) {
-            break;
-        }
+    std::vector<RssItem> feed_items;
+    std::string error;
+    if (!FetchFeed(key, count, feed_items, error)) {
+        errors.push_back(feed.name + ": " + error);
+        return false;
     }
-    return any;
+    for (auto& item : feed_items) {
+        items.emplace_back(feed.name, std::move(item));
+    }
+    return true;
 }
 
 std::string RssReader::ReadHeadlines(const std::string& feed_query, int count) {

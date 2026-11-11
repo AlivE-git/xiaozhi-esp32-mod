@@ -338,12 +338,13 @@ void McpServer::AddCommonTools() {
                     return response;
                 });
         AddTool("self.rss.read_latest",
-                "Read the latest news headlines from an RSS feed aloud. Fetches the feed from "
+                "Read the latest news headlines from one RSS feed aloud. Fetches the feed from "
                 "the internet right now, so relay the returned headlines to the user. `feed` is "
-                "the feed name, alias or category as spoken by the user; a category with several "
-                "feeds reads a random one of them. Leave it empty to use the default feed. "
-                "`count` is how many headlines to read (1-10).",
-                PropertyList({Property("feed", kPropertyTypeString, std::string("")),
+                "required: the feed name, alias or category as spoken by the user; a category "
+                "with several feeds reads a random one of them. There is no default feed, so "
+                "when the user did not name one, call self.rss.list_feeds first and ask which "
+                "feed to read. `count` is how many headlines to read (1-10).",
+                PropertyList({Property("feed", kPropertyTypeString),
                               Property("count", kPropertyTypeInteger, 5, 1, 10)}),
                 [rss](const PropertyList& properties) -> ReturnValue {
                     auto feed = properties["feed"].value<std::string>();
