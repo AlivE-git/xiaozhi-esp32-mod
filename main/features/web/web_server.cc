@@ -44,6 +44,16 @@ body{background:#f1f4f8}
 .card-header.collapsible:focus-visible{outline:2px solid #1f3a5f;outline-offset:-2px}
 .url{font-size:.82rem;word-break:break-all}
 .actions{white-space:nowrap;text-align:right}
+/* Aliases are entered one at a time and shown as removable chips */
+.alias-chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.35rem}
+.alias-chips:empty{display:none}
+.alias-chip{display:inline-flex;align-items:center;gap:.15rem;background:#e2e8f0;color:#0f172a;
+  border-radius:1rem;padding:.15rem .25rem .15rem .6rem;font-size:.85rem;max-width:100%}
+.alias-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alias-chip button{border:0;background:transparent;color:#475569;line-height:1;font-size:1rem;
+  padding:0 .3rem;border-radius:50%;cursor:pointer}
+.alias-chip button:hover{background:#cbd5e1;color:#111827}
+.alias-hint{font-size:.78rem;color:#64748b}
 .nav-tabs .nav-link{color:#1f3a5f;font-weight:600}
 .nav-tabs .nav-link.active{color:#111827}
 .timer-value{font-variant-numeric:tabular-nums;font-size:3.5rem;font-weight:700;line-height:1;letter-spacing:.03em}
@@ -105,8 +115,11 @@ body{background:#f1f4f8}
      <input id="url" class="form-control" type="url" required autocomplete="off" maxlength="256">
     </div>
     <div class="col-12">
-     <label class="form-label" for="aliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую, до 8 штук, каждый до 32 байт)</span></label>
-     <input id="aliases" class="form-control" placeholder="маяк, mayak">
+     <label class="form-label" for="aliasInput">Ключевые слова — дополнительные алиасы <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
+     <div class="alias-chips" id="aliasChips"></div>
+     <input id="aliasInput" class="form-control" autocomplete="off"
+            placeholder="Слово и Enter — добавить">
+     <div class="alias-hint mt-1" id="aliasHint">0 из 8</div>
     </div>
     <div class="col-12 d-flex gap-2">
      <button class="btn btn-primary" type="submit">💾 Сохранить станцию</button>
@@ -197,8 +210,11 @@ body{background:#f1f4f8}
      <input id="feedCategory" class="form-control" autocomplete="off" placeholder="новости" maxlength="64">
     </div>
     <div class="col-md-8">
-     <label class="form-label" for="feedAliases">Ключевые слова — дополнительные алиасы <span class="text-muted">(через запятую, до 8 штук, каждый до 32 байт)</span></label>
-     <input id="feedAliases" class="form-control" autocomplete="off" placeholder="лента, новости lenta">
+     <label class="form-label" for="feedAliasInput">Ключевые слова — дополнительные алиасы <span class="text-muted">(до 8 штук, каждый до 32 байт)</span></label>
+     <div class="alias-chips" id="feedAliasChips"></div>
+     <input id="feedAliasInput" class="form-control" autocomplete="off"
+            placeholder="Слово и Enter — добавить">
+     <div class="alias-hint mt-1" id="feedAliasHint">0 из 8</div>
     </div>
     <div class="col-12 d-flex gap-2">
      <button class="btn btn-primary" type="submit">💾 Сохранить ленту</button>
@@ -424,12 +440,59 @@ capBytes('name',64);capBytes('genre',64);capBytes('url',256);
 capBytes('feedName',64);capBytes('feedCategory',64);capBytes('feedUrl',256);
 capBytes('wolName',64);
 // Aliases are stored one by one, so the limit applies per item, not to the line.
+// The firmware keeps at most 32 bytes per alias, so the field stops there too;
+// the input has no character maxlength, because one Cyrillic letter is 2 bytes.
+const aliasMax=8,aliasMaxBytes=32;
 function aliasError(aliases){
-  if(aliases.length>8)return 'Слишком много алиасов: не больше 8';
-  const long=aliases.find(a=>utf8Bytes(a)>32);
-  if(long)return 'Алиас «'+long+'» длиннее 32 байт';
+  if(aliases.length>aliasMax)return 'Слишком много алиасов: не больше '+aliasMax;
+  const long=aliases.find(a=>utf8Bytes(a)>aliasMaxBytes);
+  if(long)return 'Алиас «'+long+'» длиннее '+aliasMaxBytes+' байт';
   return '';
 }
+// One field per alias: Enter or a comma adds a chip, the cross removes it, and
+// the input is capped in bytes so the firmware never has to drop an alias.
+function aliasEditor(inputId,chipsId,hintId){
+  const state=[];
+  const input=document.getElementById(inputId),chips=document.getElementById(chipsId),
+        hint=document.getElementById(hintId);
+  function render(){
+    chips.innerHTML='';
+    state.forEach((alias,index)=>{
+      const chip=document.createElement('span');chip.className='alias-chip';
+      const text=document.createElement('span');text.textContent=alias;
+      const remove=document.createElement('button');remove.type='button';remove.textContent='×';
+      remove.title='Удалить «'+alias+'»';remove.setAttribute('aria-label','Удалить алиас '+alias);
+      remove.onclick=()=>{state.splice(index,1);render();};
+      chip.append(text,remove);chips.appendChild(chip);
+    });
+    if(hint)hint.textContent=state.length+' из '+aliasMax;
+  }
+  function add(){
+    const parts=input.value.split(',').map(x=>x.trim()).filter(Boolean);
+    input.value='';
+    for(const part of parts){
+      const alias=clampBytes(part,aliasMaxBytes);
+      if(!alias)continue;
+      if(state.some(a=>a.toLowerCase()===alias.toLowerCase())){msg('Алиас «'+alias+'» уже добавлен',false);continue;}
+      if(state.length>=aliasMax){msg('Не больше '+aliasMax+' алиасов',false);break;}
+      state.push(alias);
+    }
+    render();
+  }
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===','){e.preventDefault();add();}
+    else if(e.key==='Backspace'&&!input.value&&state.length){state.pop();render();}
+  });
+  input.addEventListener('blur',()=>{if(input.value.trim())add();});
+  capBytes(inputId,aliasMaxBytes);
+  return {
+    add,
+    set(list){state.length=0;(list||[]).forEach(a=>{const v=clampBytes(a,aliasMaxBytes);if(v)state.push(v);});render();},
+    values(){add();return state.slice();}
+  };
+}
+const stationAliases=aliasEditor('aliasInput','aliasChips','aliasHint');
+const feedAliasEditor=aliasEditor('feedAliasInput','feedAliasChips','feedAliasHint');
 function isCurrent(s){return playback.playing&&playback.currentKey===s.key}
 function renderRows(){
   const stations=stationsCache;
@@ -496,13 +559,14 @@ function startEdit(s){
   document.getElementById('url').value=s.url||'';
   document.getElementById('genre').value=s.genre||'';
   document.getElementById('volume').value=s.volume||1.0;
-  document.getElementById('aliases').value=(s.aliases||[]).join(', ');
+  stationAliases.set(s.aliases||[]);
   document.getElementById('cancelBtn').classList.remove('d-none');
   setFormOpen('stationFormBody',true);
   document.getElementById('formTitle').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function resetForm(){
   editingKey=null;document.getElementById('stationForm').reset();
+  stationAliases.set([]);
   document.getElementById('formTitle').textContent='➕ Добавить станцию';
   document.getElementById('cancelBtn').classList.add('d-none');
   setFormOpen('stationFormBody',false);
@@ -514,7 +578,7 @@ document.getElementById('stationForm').onsubmit=async e=>{
     url:document.getElementById('url').value.trim(),
     genre:document.getElementById('genre').value.trim(),
     volume:parseFloat(document.getElementById('volume').value)||1.0,
-    aliases:document.getElementById('aliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
+    aliases:stationAliases.values()};
   const aliasProblem=aliasError(body.aliases);
   if(aliasProblem){msg(aliasProblem,false);return;}
   const url=editingKey?('/api/stations?key='+encodeURIComponent(editingKey)):'/api/stations';
@@ -591,13 +655,14 @@ function startFeedEdit(f){
   document.getElementById('feedName').value=f.name||'';
   document.getElementById('feedUrl').value=f.url||'';
   document.getElementById('feedCategory').value=f.category||'';
-  document.getElementById('feedAliases').value=(f.aliases||[]).join(', ');
+  feedAliasEditor.set(f.aliases||[]);
   document.getElementById('feedCancelBtn').classList.remove('d-none');
   setFormOpen('feedFormBody',true);
   document.getElementById('feedFormTitle').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function resetFeedForm(){
   editingFeed=null;document.getElementById('feedForm').reset();
+  feedAliasEditor.set([]);
   document.getElementById('feedFormTitle').textContent='➕ Добавить RSS-ленту';
   document.getElementById('feedCancelBtn').classList.add('d-none');
   setFormOpen('feedFormBody',false);
@@ -608,7 +673,7 @@ document.getElementById('feedForm').onsubmit=async e=>{
   const body={name:document.getElementById('feedName').value.trim(),
     url:document.getElementById('feedUrl').value.trim(),
     category:document.getElementById('feedCategory').value.trim(),
-    aliases:document.getElementById('feedAliases').value.split(',').map(x=>x.trim()).filter(Boolean)};
+    aliases:feedAliasEditor.values()};
   const aliasProblem=aliasError(body.aliases);
   if(aliasProblem){msg(aliasProblem,false);return;}
   if(editingFeed)body.key=editingFeed;
