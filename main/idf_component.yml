@@ -1,5 +1,6 @@
 ## IDF Component Manager Manifest File
 dependencies:
+  joltwallet/littlefs: "~1.23.1"
   espressif/ip101:
     version: ^1.1.0
     rules:

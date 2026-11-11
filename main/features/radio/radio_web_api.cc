@@ -152,13 +152,13 @@ esp_err_t HandleStations(httpd_req_t* req) {
             return web::SendError(req, 400, "Missing key query parameter");
         }
         ESP_LOGI(TAG, "Delete station request: key='%s'", key);
-        // Distinguish "no such station" from a failed NVS save for the user.
+        // Distinguish "no such station" from a failed storage save for the user.
         if (radio->GetStations().find(key) == radio->GetStations().end()) {
             ESP_LOGW(TAG, "Delete station: key not present in station list");
             return web::SendError(req, 404, "Station not found");
         }
         if (!radio->DeleteStation(key)) {
-            ESP_LOGE(TAG, "Delete station: failed to persist station list to NVS");
+            ESP_LOGE(TAG, "Delete station: failed to persist the station list to storage");
             return web::SendError(req, 500, "Failed to save station list");
         }
         return web::SendJson(req, 200, "{\"ok\":true}");
@@ -239,7 +239,7 @@ esp_err_t HandleImport(httpd_req_t* req) {
 
     ESP_LOGI(TAG, "Import station request: %d stations", static_cast<int>(imported.size()));
     if (!radio->ReplaceStations(imported)) {
-        ESP_LOGE(TAG, "Import station request: failed to persist station list to NVS");
+        ESP_LOGE(TAG, "Import station request: failed to persist the station list to storage");
         return web::SendError(req, 500, "Failed to save imported station list");
     }
     CJsonUniquePtr result(cJSON_CreateObject());

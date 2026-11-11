@@ -2,7 +2,7 @@
 
 #include "board.h"
 #include "cjson_utils.h"
-#include "settings.h"
+#include "features/storage/list_storage.h"
 
 #include <esp_log.h>
 #include <esp_random.h>
@@ -16,7 +16,6 @@
 
 namespace {
 
-constexpr char kNamespace[] = "rss";
 constexpr int kMaxFeeds = 16;
 constexpr int kMaxFeedsPerRequest = 4;
 constexpr size_t kMaxFeedBytes = 256 * 1024;
@@ -346,9 +345,8 @@ void RssReader::Initialize() {
 }
 
 bool RssReader::LoadFeedsLocked(std::map<std::string, RssFeed>& feeds) const {
-    Settings settings(kNamespace);
-    const std::string saved = settings.GetString("feeds");
-    if (saved.empty()) {
+    std::string saved;
+    if (!list_storage::Read("rss.json", saved)) {
         return false;
     }
 
@@ -430,9 +428,8 @@ bool RssReader::SaveFeedsLocked(const std::map<std::string, RssFeed>& feeds) con
     if (text == nullptr) {
         return false;
     }
-    Settings settings(kNamespace, true);
-    if (!settings.SetString("feeds", text.get())) {
-        ESP_LOGE(TAG, "Failed to save RSS feed list to NVS");
+    if (!list_storage::Write("rss.json", text.get())) {
+        ESP_LOGE(TAG, "Failed to save the RSS feed list to the storage partition");
         return false;
     }
     return true;

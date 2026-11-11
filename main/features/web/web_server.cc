@@ -7,6 +7,7 @@
 #include "features/joke/joke_reader.h"
 #include "features/radio/radio_web_api.h"
 #include "features/rss/rss_reader.h"
+#include "features/storage/list_storage.h"
 #include "features/timer/countdown_timer.h"
 #include "features/wol/wol_web_api.h"
 #include "mcp_server.h"
@@ -14,7 +15,6 @@
 #include <esp_app_desc.h>
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <nvs.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -265,10 +265,10 @@ body{background:#f1f4f8}
    <dt class="col-5 col-sm-3">Прошивка</dt><dd class="col-7 col-sm-9" id="statusVersion">—</dd>
    <dt class="col-5 col-sm-3">Время работы</dt><dd class="col-7 col-sm-9" id="statusUptime">—</dd>
    <dt class="col-5 col-sm-3">Wi-Fi</dt><dd class="col-7 col-sm-9" id="statusWifi">—</dd>
-   <dt class="col-5 col-sm-3">NVS</dt>
+   <dt class="col-5 col-sm-3">Хранилище</dt>
    <dd class="col-7 col-sm-9">
-    <div class="progress" style="height:1.25rem"><div class="progress-bar bg-success" id="statusNvsBar" role="progressbar" style="width:0%">—</div></div>
-    <div class="small text-muted" id="statusNvsText">—</div>
+    <div class="progress" style="height:1.25rem"><div class="progress-bar bg-success" id="statusStorageBar" role="progressbar" style="width:0%">—</div></div>
+    <div class="small text-muted" id="statusStorageText">—</div>
    </dd>
   </dl>
  </div>
@@ -771,6 +771,12 @@ function signalLabel(rssi){
   if(rssi>=-80)return 'слабый';
   return 'очень слабый';
 }
+function fmtBytes(bytes){
+  if(typeof bytes!=='number'||bytes<0)return '—';
+  if(bytes>=1048576)return (bytes/1048576).toFixed(1)+' МБ';
+  if(bytes>=1024)return Math.round(bytes/1024)+' КБ';
+  return bytes+' Б';
+}
 function setStatusText(id,text){
   const el=document.getElementById(id);
   if(el)el.textContent=text;
@@ -787,20 +793,20 @@ function renderStatus(data){
     if(typeof network.rssi==='number')wifi+=' · '+network.rssi+' dBm · '+signalLabel(network.rssi);
   }
   setStatusText('statusWifi',wifi);
-  const nvs=status.nvs||{};
-  const nvsBar=document.getElementById('statusNvsBar');
-  const nvsText=document.getElementById('statusNvsText');
-  if(typeof nvs.used==='number'&&typeof nvs.total==='number'&&nvs.total>0){
-    const percent=Math.min(100,Math.round(nvs.used*100/nvs.total));
-    nvsBar.style.width=percent+'%';
-    nvsBar.className='progress-bar '+(percent>=90?'bg-danger':(percent>=70?'bg-warning text-dark':'bg-success'));
-    nvsBar.textContent=percent+'%';
-    nvsText.textContent=nvs.used+' из '+nvs.total+' записей занято';
+  const storage=status.storage||{};
+  const storageBar=document.getElementById('statusStorageBar');
+  const storageText=document.getElementById('statusStorageText');
+  if(typeof storage.used==='number'&&typeof storage.total==='number'&&storage.total>0){
+    const percent=Math.min(100,Math.round(storage.used*100/storage.total));
+    storageBar.style.width=percent+'%';
+    storageBar.className='progress-bar '+(percent>=90?'bg-danger':(percent>=70?'bg-warning text-dark':'bg-success'));
+    storageBar.textContent=percent+'%';
+    storageText.textContent=fmtBytes(storage.used)+' из '+fmtBytes(storage.total)+' занято';
   }else{
-    nvsBar.style.width='0%';
-    nvsBar.className='progress-bar bg-secondary';
-    nvsBar.textContent='—';
-    nvsText.textContent='недоступно';
+    storageBar.style.width='0%';
+    storageBar.className='progress-bar bg-secondary';
+    storageBar.textContent='—';
+    storageText.textContent='недоступно';
   }
 }
 async function saveVolume(value){
@@ -1564,15 +1570,15 @@ esp_err_t WebServer::HandleSystem(httpd_req_t* req) {
             cJSON_AddNumberToObject(status, "uptimeSeconds",
                                     static_cast<double>(esp_timer_get_time()) / 1000000.0);
         }
-        // NVS usage in 32-byte entries, so the page can show how full the
-        // partition is before a save starts failing.
-        nvs_stats_t nvs_stats = {};
-        if (status != nullptr && nvs_get_stats(nullptr, &nvs_stats) == ESP_OK &&
-            nvs_stats.total_entries > 0) {
-            cJSON* nvs = cJSON_AddObjectToObject(status, "nvs");
-            if (nvs != nullptr) {
-                cJSON_AddNumberToObject(nvs, "used", nvs_stats.used_entries);
-                cJSON_AddNumberToObject(nvs, "total", nvs_stats.total_entries);
+        // Bytes used on the storage partition, so the page shows how full the
+        // files with the radio, RSS and Wake-on-LAN lists are.
+        size_t storage_used = 0;
+        size_t storage_total = 0;
+        if (status != nullptr && list_storage::GetStats(storage_used, storage_total)) {
+            cJSON* storage = cJSON_AddObjectToObject(status, "storage");
+            if (storage != nullptr) {
+                cJSON_AddNumberToObject(storage, "used", static_cast<double>(storage_used));
+                cJSON_AddNumberToObject(storage, "total", static_cast<double>(storage_total));
             }
         }
         CJsonUniquePtr device(cJSON_Parse(Board::GetInstance().GetDeviceStatusJson().c_str()));

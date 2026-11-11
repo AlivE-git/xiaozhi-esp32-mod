@@ -5,7 +5,7 @@
 #include "cjson_utils.h"
 #include "device_state.h"
 #include "display/display.h"
-#include "settings.h"
+#include "features/storage/list_storage.h"
 
 #include "esp_ae_rate_cvt.h"
 #include "esp_audio_types.h"
@@ -180,27 +180,12 @@ RadioStation NormalizeStation(RadioStation station) {
 
 }  // namespace
 
-// The station list JSON is stored in NVS in small chunks ("c0", "c1", ...
-// plus a "n" chunk count). The NVS partition on small boards is only a few
-// pages, and one multi-KB nvs_set_str needs several free pages at once and
-// quickly exhausts it (ESP_ERR_NVS_NOT_ENOUGH_SPACE). Small chunks let GC
-// reclaim pages one at a time. The legacy single "stations" key is still
-// read for backward compatibility and erased after the first chunked save.
-namespace {
-constexpr size_t kNvsChunkSize = 1024;
-}  // namespace
+// The station list is a JSON document of several KB, more than the small NVS
+// partition can hold, so it lives in a file on the storage partition.
 
 bool Esp32Radio::LoadStations() {
-    Settings settings("radio");
     std::string saved;
-    int32_t chunk_count = settings.GetInt("n", 0);
-    if (chunk_count > 0) {
-        for (int32_t i = 0; i < chunk_count; ++i) {
-            saved += settings.GetString("c" + std::to_string(i));
-        }
-    } else {
-        saved = settings.GetString("stations");
-    }
+    list_storage::Read("radio.json", saved);
     if (saved.empty()) {
         return false;
     }
@@ -312,34 +297,11 @@ bool Esp32Radio::SaveStations() {
         return false;
     }
     const std::string json = json_str.get();
-    const int32_t chunk_count =
-        static_cast<int32_t>((json.size() + kNvsChunkSize - 1) / kNvsChunkSize);
-
-    Settings settings("radio", true);
-    const int32_t old_chunk_count = settings.GetInt("n", 0);
-    // Erase the legacy monolithic entry first: on the first chunked save it
-    // would otherwise coexist with the new chunks and fill the tiny NVS
-    // partition. Chunked data (if any) is authoritative, so this is safe.
-    settings.EraseKey("stations");
-    for (int32_t i = 0; i < chunk_count; ++i) {
-        const size_t offset = static_cast<size_t>(i) * kNvsChunkSize;
-        const std::string chunk = json.substr(offset, kNvsChunkSize);
-        if (!settings.SetString("c" + std::to_string(i), chunk)) {
-            ESP_LOGE(TAG, "Failed to save station chunk %d to NVS", static_cast<int>(i));
-            return false;
-        }
-    }
-    if (!settings.SetInt("n", chunk_count)) {
-        ESP_LOGE(TAG, "Failed to save station chunk count to NVS");
+    if (!list_storage::Write("radio.json", json)) {
+        ESP_LOGE(TAG, "Failed to save the station list to the storage partition");
         return false;
     }
-    // Drop leftover chunks from a previously longer list, so they do not
-    // keep occupying scarce NVS pages.
-    for (int32_t i = chunk_count; i < old_chunk_count; ++i) {
-        settings.EraseKey("c" + std::to_string(i));
-    }
-    ESP_LOGI(TAG, "Saved %d radio stations to NVS in %d chunks", stations.size(),
-             static_cast<int>(chunk_count));
+    ESP_LOGI(TAG, "Saved %d radio stations", static_cast<int>(stations.size()));
     return true;
 }
 

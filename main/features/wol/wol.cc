@@ -1,6 +1,7 @@
 #include "wol.h"
 
 #include "cjson_utils.h"
+#include "features/storage/list_storage.h"
 #include "settings.h"
 
 #include <esp_log.h>
@@ -16,7 +17,6 @@
 namespace {
 
 constexpr const char* kNamespace = "wol";
-constexpr const char* kListKey = "list";
 // Keys of the first version of this feature, which kept a single computer.
 // They are migrated on load and erased on the first save.
 constexpr const char* kLegacyMacKey = "mac";
@@ -151,7 +151,8 @@ bool NormalizeMac(const std::string& text, std::string& mac) {
 std::vector<Computer> LoadComputers() {
     Settings settings(kNamespace);
     std::vector<Computer> computers;
-    const std::string saved = settings.GetString(kListKey);
+    std::string saved;
+    list_storage::Read("wol.json", saved);
     if (!saved.empty() && !ParseComputers(saved, computers)) {
         ESP_LOGW(TAG, "Saved computer list is not valid JSON, ignoring it");
     }
@@ -232,11 +233,11 @@ bool SaveComputers(const std::vector<Computer>& computers, std::string& error) {
         error = "Не хватает памяти";
         return false;
     }
-    Settings settings(kNamespace, /*read_write=*/true);
-    if (!settings.SetString(kListKey, text.get())) {
-        error = "Не удалось сохранить список компьютеров в NVS";
+    if (!list_storage::Write("wol.json", text.get())) {
+        error = "Не удалось сохранить список компьютеров в файл настроек";
         return false;
     }
+    Settings settings(kNamespace, /*read_write=*/true);
     settings.EraseKey(kLegacyMacKey);
     settings.EraseKey(kLegacyBroadcastKey);
     settings.EraseKey(kLegacyPortKey);

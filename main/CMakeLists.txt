@@ -26,6 +26,7 @@ set(SOURCES "audio/audio_codec.cc"
             "features/wol/wol.cc"
             "features/wol/wol_web_api.cc"
             "features/rss/rss_reader.cc"
+            "features/storage/list_storage.cc"
             "features/timer/countdown_timer.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
@@ -1233,6 +1234,7 @@ idf_component_register(SRCS ${SOURCES}
                         efuse
                         bt
                         fatfs
+                        joltwallet__littlefs
                         xiaozhi-fonts
 						espressif__esp-dsp
                         ${MAIN_PRIV_REQUIRES_EXTRA}

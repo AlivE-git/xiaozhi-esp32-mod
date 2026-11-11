@@ -7,6 +7,7 @@
 #include "display.h"
 #include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
+#include "features/storage/list_storage.h"
 #include "features/web/web_server.h"
 #include "features/timer/countdown_timer.h"
 #include "mcp_server.h"
@@ -84,6 +85,10 @@ void Application::RequestIdleAfterSpeaking() { idle_after_speaking_.store(true);
 void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
+
+    // The radio, RSS and Wake-on-LAN lists live on the storage partition, so
+    // it is mounted before any of them reads its file.
+    list_storage::Init();
 
     // Setup the display
     auto display = board.GetDisplay();
