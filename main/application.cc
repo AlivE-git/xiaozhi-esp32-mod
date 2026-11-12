@@ -5,6 +5,7 @@
 #include "board.h"
 #include "cjson_utils.h"
 #include "display.h"
+#include "features/reminder/reminder_notifier.h"
 #include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
 #include "features/storage/list_storage.h"
@@ -147,6 +148,10 @@ void Application::Initialize() {
 
     // Create the countdown timer (idle until a timer is requested)
     timer_ = new CountdownTimer();
+
+    // Local reminders are read from the storage partition that is mounted above,
+    // and they need no network: the task starts right away.
+    reminder::StartNotifier();
 
     // Add MCP common tools (only once during initialization)
     auto& mcp_server = McpServer::GetInstance();

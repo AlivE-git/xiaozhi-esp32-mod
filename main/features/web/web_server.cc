@@ -5,6 +5,7 @@
 #include "cjson_utils.h"
 #include "features/currency/currency_converter.h"
 #include "features/joke/joke_reader.h"
+#include "features/reminder/reminder_web_api.h"
 #include "features/radio/radio_web_api.h"
 #include "features/rss/rss_reader.h"
 #include "features/storage/list_storage.h"
@@ -160,8 +161,9 @@ body{background:#f1f4f8}
  <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-tab="radio">📻 Радио</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="news">📰 Новости</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="timer">⏱ Таймер</button></li>
- <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="skills">🧠 Навыки</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="reminders">⏰ Напоминания</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="wol">🌐 Wake-on-LAN</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="skills">🧠 Навыки</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
 </ul>
 <div class="tab-content">
@@ -262,6 +264,44 @@ body{background:#f1f4f8}
    </div>
   </form>
   <div class="text-muted small text-center mt-4">Таймер идёт независимо от радио и разговора с ассистентом; по окончании звучит сигнал.</div>
+ </div>
+</section>
+</div>
+
+<div class="tab-pane" id="pane-reminders" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header">⏰ Новое напоминание</div>
+ <div class="card-body">
+  <form id="reminderForm" class="row g-2 align-items-end">
+   <div class="col-md-4">
+    <label class="form-label" for="reminderText">Текст</label>
+    <input id="reminderText" class="form-control" required maxlength="120" autocomplete="off" placeholder="Выключить машинку">
+   </div>
+   <div class="col-auto">
+    <label class="form-label" for="reminderMinutes">Через, мин</label>
+    <input id="reminderMinutes" class="form-control" type="number" min="1" max="10080" step="1" placeholder="10" style="width:7rem">
+   </div>
+   <div class="col-auto">
+    <label class="form-label" for="reminderDate">Дата</label>
+    <input id="reminderDate" class="form-control" type="date" style="width:10rem">
+   </div>
+   <div class="col-auto">
+    <label class="form-label" for="reminderAt">Время</label>
+    <input id="reminderAt" class="form-control" type="time" style="width:8rem">
+   </div>
+   <div class="col-auto">
+    <button class="btn btn-primary" type="submit">➕ Добавить</button>
+   </div>
+  </form>
+  <div class="form-text mt-2">Заполните «Через, мин» либо «Дата» и «Время». С датой без времени напомню в 09:00, без даты и времени — через 10 минут.</div>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">⏰ Активные напоминания</div>
+ <div class="card-body">
+  <div id="reminderList"><div class="text-secondary">Напоминаний нет.</div></div>
  </div>
 </section>
 </div>
@@ -806,10 +846,90 @@ document.getElementById('feedImportFile').onchange=async e=>{
   else{msg('Импорт не удался: '+(res.error||r.status),false);}
   e.target.value='';
 };
+function reminderRow(item,index){
+  const row=document.createElement('div');
+  row.className='d-flex align-items-center gap-2 py-2 border-bottom';
+  const text=document.createElement('div');
+  text.className='flex-grow-1';
+  text.textContent=(item.when?item.when+' — ':'')+(item.text||'');
+  const del=document.createElement('button');
+  del.className='btn btn-sm btn-outline-danger';
+  del.type='button';
+  del.textContent='Удалить';
+  del.onclick=()=>deleteReminder(index,del);
+  row.appendChild(text);
+  row.appendChild(del);
+  return row;
+}
+function renderReminders(items){
+  const box=document.getElementById('reminderList');
+  if(!box)return;
+  box.innerHTML='';
+  if(!Array.isArray(items)||items.length===0){
+    const empty=document.createElement('div');
+    empty.className='text-secondary';
+    empty.textContent='Напоминаний нет.';
+    box.appendChild(empty);
+    return;
+  }
+  items.forEach((item,index)=>box.appendChild(reminderRow(item,index)));
+}
+async function loadReminders(){
+  try{
+    const r=await fetch('/api/reminders');
+    if(!r.ok)return;
+    const data=await r.json();
+    renderReminders(data.reminders);
+  }catch(e){/* device unreachable; keep the last state */}
+}
+async function deleteReminder(index,btn){
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/reminders?index='+index,{method:'DELETE'});
+    const res=await r.json().catch(()=>({}));
+    msg(r.ok?'Напоминание удалено':'Не удалось удалить: '+(res.error||r.status),r.ok);
+    if(r.ok)loadReminders();
+  }catch(e){msg('Не удалось удалить: устройство недоступно',false);}
+  finally{btn.disabled=false;}
+}
+document.getElementById('reminderForm').onsubmit=async(e)=>{
+  e.preventDefault();
+  const text=(document.getElementById('reminderText').value||'').trim();
+  const minutes=parseInt(document.getElementById('reminderMinutes').value,10);
+  const at=document.getElementById('reminderAt').value||'';
+  const date=document.getElementById('reminderDate').value||'';
+  if(!text){msg('Введите текст напоминания',false);return;}
+  const payload={text:text};
+  if(at||date){
+    if(date)payload.date=date;
+    if(at)payload.at=at;
+  }else{
+    payload.minutes=(Number.isFinite(minutes)&&minutes>0)?minutes:10;
+  }
+  const btn=e.target.querySelector('button[type="submit"]');
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/reminders',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)});
+    const res=await r.json().catch(()=>({}));
+    if(r.ok){
+      msg('Напоминание на '+res.when,true);
+      document.getElementById('reminderText').value='';
+      document.getElementById('reminderMinutes').value='';
+      document.getElementById('reminderDate').value='';
+      document.getElementById('reminderAt').value='';
+      loadReminders();
+    }else{
+      msg('Не удалось добавить: '+(res.error||r.status),false);
+    }
+  }catch(e){msg('Не удалось добавить: устройство недоступно',false);}
+  finally{btn.disabled=false;}
+};
 function showTab(name){
   document.querySelectorAll('#mainTabs .nav-link').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-content > .tab-pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='timer')loadTimer();
+  if(name==='reminders')loadReminders();
   if(name==='news')loadRss();
   if(name==='skills')loadTools();
   if(name==='system')loadSystem();
@@ -1155,6 +1275,7 @@ load();
 loadStatus();
 setInterval(loadStatus,3000);
 setInterval(()=>{if(document.getElementById('pane-timer').classList.contains('active'))loadTimer();},1000);
+setInterval(()=>{if(document.getElementById('pane-reminders').classList.contains('active'))loadReminders();},5000);
 </script></body></html>)HTML";
 
 // "маяк, mayak" -> {"маяк", "mayak"}. The Web UI sends lists as comma separated
@@ -1297,8 +1418,11 @@ bool WebServer::Start(int port) {
     // ("Ringbuffer of AFE(FEED) is full"). Keep the Web UI below the audio
     // tasks; handlers still get CPU because they block on the network.
     config.task_priority = 2;
-    // Fourteen endpoints here, five for Wake-on-LAN and eight for the radio API.
-    config.max_uri_handlers = 27;
+    // httpd counts every uri/method pair, and the modules registered after this
+    // point need slots too: fourteen endpoints here, five for Wake-on-LAN, eight
+    // for the radio API and one for the reminders. Keep a small margin, since a
+    // handler that does not fit is silently missing at runtime.
+    config.max_uri_handlers = 32;
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the Web UI on port %d", port);
@@ -1339,6 +1463,7 @@ bool WebServer::Start(int port) {
     // The radio and computer tabs ship with the device page, so their endpoints
     // are registered here too instead of from every board that has a radio.
     RadioWebApi::Register(*this);
+    reminder::ReminderWebApi::Register(*this);
     WolWebApi::Register(*this);
 
     ESP_LOGI(TAG, "Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,

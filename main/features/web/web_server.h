@@ -13,7 +13,8 @@
 // modules add their own endpoints after it starts, e.g. the radio registers
 // /api/stations from RadioWebApi::Register().
 //
-// Pages: GET /          - the device page (radio, news, timer, skills, wake-on-lan, system)
+// Pages: GET /          - the device page (radio, news, timer, reminders, skills,
+//                          wake-on-lan, system)
 //        GET  /api/timer                 - {running, remainingSeconds, remaining}
 //        POST /api/timer?seconds=N       - start (or replace) the countdown timer
 //        POST /api/timer/stop            - cancel the running countdown timer
@@ -26,6 +27,9 @@
 //        GET  /api/skills                - every registered skill with its read_only flag
 //        POST /api/skills                - replace the read-only skill list
 //                                          ({"read_only":[...]})
+//        GET  /api/reminders              - the reminders waiting on the device
+//        POST /api/reminders              - add one ({text, minutes} or {text, date, at})
+//        DELETE /api/reminders?index=N    - remove one
 //        GET  /api/system                - {volume}
 //        POST /api/system                - set the speaker volume ({"volume":0..100})
 //        POST /api/system/reboot         - reboot the device

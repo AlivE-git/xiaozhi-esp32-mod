@@ -20,6 +20,9 @@ set(SOURCES "audio/audio_codec.cc"
             "display/oled_display.cc"
             "features/currency/currency_converter.cc"
             "features/joke/joke_reader.cc"
+            "features/reminder/reminder_notifier.cc"
+            "features/reminder/reminder_store.cc"
+            "features/reminder/reminder_web_api.cc"
             "features/radio/esp32_radio.cc"
             "features/radio/radio_web_api.cc"
             "features/web/web_server.cc"
@@ -53,7 +56,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/currency" "features/joke" "features/radio" "features/rss" "features/timer" "features/web" "features/wol")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/currency" "features/joke" "features/radio" "features/reminder" "features/rss" "features/timer" "features/web" "features/wol")
 
 # Add board common files
 list(APPEND SOURCES

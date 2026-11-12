@@ -17,6 +17,7 @@
 #include "display.h"
 #include "features/currency/currency_converter.h"
 #include "features/joke/joke_reader.h"
+#include "features/reminder/reminder_store.h"
 #include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
@@ -352,6 +353,77 @@ void McpServer::AddCommonTools() {
                     return rss->ReadHeadlines(feed, count);
                 });
     }
+
+    // Reminders kept on the device, independent of the network.
+    AddTool("self.reminder.add",
+            "Set a reminder on the device itself: at that moment the device plays a sound "
+            "and shows `text` on the screen. Use it whenever the user says \"напомни\" with "
+            "their own wording, e.g. \"напомни через 10 минут выключить машинку\" or "
+            "\"напомни в 22:40 позвонить маме\". `text` is the short action to remind about, "
+            "in the user's words and without the time. Pass `minutes` when the user speaks "
+            "in a delay (\"через 10 минут\", \"через полтора часа\" = 90) and `at` as "
+            "\"HH:MM\" when they name a clock time. Pass `date` when the user names another "
+            "day: \"today\", \"tomorrow\", \"послезавтра\", \"13.11\" or \"2026-11-13\"; "
+            "with a date but no time the reminder is set for 09:00. Pass `minutes` alone, or "
+            "`date` and `at` together. This does not create a Google Calendar event, so "
+            "confirm the wording and the time to the user instead of asking for anything "
+            "else.",
+            PropertyList({Property("text", kPropertyTypeString),
+                          Property("minutes", kPropertyTypeInteger, 0, 0, 10080),
+                          Property("at", kPropertyTypeString, std::string("")),
+                          Property("date", kPropertyTypeString, std::string(""))}),
+            [](const PropertyList& properties) -> ReturnValue {
+                const std::string text = properties["text"].value<std::string>();
+                const std::string at = properties["at"].value<std::string>();
+                const std::string date = properties["date"].value<std::string>();
+                const int minutes = properties["minutes"].value<int>();
+                reminder::Item added;
+                std::string error;
+                if (!at.empty() || !date.empty()) {
+                    if (!reminder::AddAt(date, at, text, added, error)) {
+                        return std::string("Ошибка: ") + error + ".";
+                    }
+                } else if (!reminder::AddIn(minutes > 0 ? minutes : 10, text, added,
+                                            error)) {
+                    return std::string("Ошибка: ") + error + ".";
+                }
+                return reminder::DescribeItem(added);
+            });
+
+    AddTool("self.reminder.list",
+            "Read the reminders that are still waiting on the device to the user, soonest "
+            "first. Use it when the user asks what they asked to be reminded about or asks "
+            "to read the reminder list aloud; the returned text is meant to be spoken.",
+            PropertyList({Property("max_items", kPropertyTypeInteger, 5, 1, 10)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                return reminder::Describe(properties["max_items"].value<int>());
+            });
+
+    AddTool("self.reminder.remove",
+            "Cancel reminders stored on the device. Use it when the user says \"отмени "
+            "напоминание\", \"убери напоминание про машину\" or \"убери все напоминания\". "
+            "Pass `match` with the words the user used to name the reminder; only the first "
+            "matching reminder is cancelled, so repeat which one was removed. Set `all` to "
+            "true only when the user clearly wants every reminder gone.",
+            PropertyList({Property("match", kPropertyTypeString, std::string("")),
+                          Property("all", kPropertyTypeBoolean, false)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                if (properties["all"].value<bool>()) {
+                    const int count = reminder::RemoveAll();
+                    if (count == 0) {
+                        return std::string("Напоминаний не было.");
+                    }
+                    return "Убрал все напоминания: " + std::to_string(count) + ".";
+                }
+                const std::string match = properties["match"].value<std::string>();
+                reminder::Item removed;
+                std::string error;
+                if (!reminder::RemoveMatching(match, removed, error)) {
+                    return std::string("Ошибка: ") + error + ".";
+                }
+                return "Убрал напоминание: " + reminder::WhenText(removed.due) + " — " +
+                       removed.text + ".";
+            });
 
     // Random joke reader
     AddTool("self.joke.tell",
