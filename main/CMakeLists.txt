@@ -1209,6 +1209,12 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
         sdmmc
     )
 endif()
+# The Otto camera board uses the USB Serial/JTAG host connection to detect
+# charging from a USB port. The board is ESP32-S3 only, so require the driver
+# on that target and keep other target builds unchanged.
+if(IDF_TARGET STREQUAL "esp32s3")
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA esp_driver_usb_serial_jtag)
+endif()
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
@@ -1220,6 +1226,7 @@ idf_component_register(SRCS ${SOURCES}
                         espressif__mdns
                         esp_netif
                         esp_eth
+                        esp_adc
                         esp_driver_gpio
                         esp_driver_uart
                         esp_driver_spi
@@ -1248,6 +1255,13 @@ idf_component_register(SRCS ${SOURCES}
 # dialect; pin the baseline so main/ does not depend on it.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++23>)
+    # Bound individual frames in project-owned code; task call chains still need runtime checks.
+    target_compile_options(${COMPONENT_LIB} PRIVATE
+        -Werror=frame-larger-than=1536
+        -Werror=vla
+        -Werror=alloca
+        $<$<COMPILE_LANG_AND_ID:C,GNU>:-fstack-usage>
+        $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-fstack-usage>)
 endif()
 
 # Use target_compile_definitions to define the reported board identity
