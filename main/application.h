@@ -180,6 +180,7 @@ private:
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     std::atomic<bool> idle_after_speaking_ = false;  // One-shot: go idle instead of listening on next TTS stop
     int clock_ticks_ = 0;
+    bool radio_playing_ = false;  // Last radio playback state seen by the main loop
     TaskHandle_t activation_task_handle_ = nullptr;
 
 
@@ -212,6 +213,7 @@ private:
     void InitializeProtocol();
     void ShowActivationCode(const std::string& code, const std::string& message);
     void SetListeningMode(ListeningMode mode);
+    void ApplyPowerSaveLevel(PowerSaveLevel level);
     ListeningMode GetDefaultListeningMode() const;
     
     // State change handler called by state machine

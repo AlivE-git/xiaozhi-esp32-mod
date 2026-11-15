@@ -239,6 +239,16 @@ void Application::Initialize() {
     display->UpdateStatusBar(true);
 }
 
+// Modem sleep cannot keep up with a continuous HTTP stream: the station wakes up too
+// slowly, the download stalls and the radio playback buffer underruns. So while the
+// radio is playing, an idle transition must not put the Wi-Fi into low power mode.
+void Application::ApplyPowerSaveLevel(PowerSaveLevel level) {
+    if (level == PowerSaveLevel::LOW_POWER && radio_ != nullptr && radio_->IsPlaying()) {
+        level = PowerSaveLevel::PERFORMANCE;
+    }
+    Board::GetInstance().SetPowerSaveLevel(level);
+}
+
 void Application::Run() {
     // Set the priority of the main task to 10
     vTaskPrioritySet(nullptr, 10);
@@ -344,6 +354,18 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+            // Follow the radio state: a stream can start while the device is already idle
+            // (with low power Wi-Fi) and can finish without any state transition, so the
+            // level is re-evaluated here, on the main task, and not from the radio threads.
+            bool radio_playing = radio_ != nullptr && radio_->IsPlaying();
+            if (radio_playing != radio_playing_) {
+                radio_playing_ = radio_playing;
+                if (radio_playing) {
+                    ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+                } else if (GetDeviceState() == kDeviceStateIdle) {
+                    ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+                }
+            }
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
             if (timer_ != nullptr) {
@@ -442,8 +464,7 @@ void Application::HandleActivationDoneEvent() {
 
     // Release OTA object after activation is complete
     ota_.reset();
-    auto& board = Board::GetInstance();
-    board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+    ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
 
     if (!has_error) {
         Schedule([this]() {
@@ -500,7 +521,7 @@ void Application::CheckAssetsVersion() {
         // Wait for the audio service to be idle for 3 seconds
         vTaskDelay(pdMS_TO_TICKS(3000));
         SetDeviceState(kDeviceStateUpgrading);
-        board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+        ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         display->SetChatMessage("system", Lang::Strings::PLEASE_WAIT);
 
         bool success =
@@ -512,7 +533,7 @@ void Application::CheckAssetsVersion() {
                 });
             });
 
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         vTaskDelay(pdMS_TO_TICKS(1000));
 
         if (!success) {
@@ -656,7 +677,7 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
-        board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+        ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG,
                      "Server sample rate %d does not match device output sample rate %d, "
@@ -666,7 +687,7 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnAudioChannelClosed([this, &board]() {
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
@@ -948,8 +969,7 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
     }
 
     // Switch to performance mode before connecting to reduce latency
-    auto& board = Board::GetInstance();
-    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
 
     if (!protocol_->IsAudioChannelOpened()) {
         if (!protocol_->OpenAudioChannel()) {
@@ -1084,8 +1104,7 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
 
     // Switch to performance mode before connecting to reduce latency
-    auto& board = Board::GetInstance();
-    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
 
     if (!protocol_->IsAudioChannelOpened()) {
         if (!protocol_->OpenAudioChannel()) {
@@ -1294,8 +1313,7 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
         return;
     }
 
-    auto& board = Board::GetInstance();
-    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
     audio_service_.EnableVoiceProcessing(false);
     audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
     audio_service_.ReleaseWakeWordResources();
@@ -1304,7 +1322,7 @@ void Application::StartNotification(std::string audio_url, std::vector<NotifySub
     }
 
     if (!SetDeviceState(kDeviceStateNotifying)) {
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+        ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         return;
     }
 
@@ -1339,7 +1357,7 @@ void Application::StopNotification() {
     audio_service_.ResetDecoder();
     auto& board = Board::GetInstance();
     board.GetDisplay()->SetChatMessage("assistant", "");
-    board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+    ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
     if (GetDeviceState() == kDeviceStateNotifying) {
         SetDeviceState(kDeviceStateIdle);
     }
@@ -1422,7 +1440,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     std::string message = std::string(Lang::Strings::NEW_VERSION) + version_info;
     display->SetChatMessage("system", message.c_str());
 
-    board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    ApplyPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
     audio_service_.Stop();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
@@ -1439,7 +1457,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         ESP_LOGE(TAG,
                  "Firmware upgrade failed, restarting audio service and continuing operation...");
         audio_service_.Start();                              // Restart audio service
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);  // Restore power save level
+        ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);  // Restore power save level
         Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "cancel",
               Lang::Sounds::OGG_EXCLAMATION);
         vTaskDelay(pdMS_TO_TICKS(3000));
