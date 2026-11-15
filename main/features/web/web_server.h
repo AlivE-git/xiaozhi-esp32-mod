@@ -8,13 +8,13 @@
 
 // HTTP server behind the device page. It owns the socket and the page itself and
 // serves the endpoints of the device rather than of one feature: the page, the
-// countdown timer, the RSS feeds, the skill settings and the system tab (volume,
-// reboot, availability checks). Feature
+// countdown timer, the RSS feeds, the skill settings, the sound tab (volume,
+// equalizer) and the system tab (status, reboot, availability checks). Feature
 // modules add their own endpoints after it starts, e.g. the radio registers
 // /api/stations from RadioWebApi::Register().
 //
 // Pages: GET /          - the device page (radio, news, timer, reminders, skills,
-//                          wake-on-lan, system)
+//                          wake-on-lan, sound, system)
 //        GET  /api/timer                 - {running, remainingSeconds, remaining}
 //        POST /api/timer?seconds=N       - start (or replace) the countdown timer
 //        POST /api/timer/stop            - cancel the running countdown timer
@@ -35,6 +35,8 @@
 //        POST /api/system/reboot         - reboot the device
 //        GET  /api/system/check?service=joke|currency
 //                                        - fetch from that service and report {ok} or 502
+//        GET  /api/eq                    - {bands_hz:[...], gains_db:[...]}
+//        POST /api/eq                    - set the equalizer ({"gains":[...]} in dB, -15..15)
 namespace web {
 
 // Request bodies are small JSON documents; anything larger is rejected instead
@@ -88,6 +90,7 @@ private:
     static esp_err_t SystemHandler(httpd_req_t* req);
     static esp_err_t RebootHandler(httpd_req_t* req);
     static esp_err_t CheckHandler(httpd_req_t* req);
+    static esp_err_t EqHandler(httpd_req_t* req);
 
     esp_err_t HandlePage(httpd_req_t* req);
     esp_err_t HandleTimer(httpd_req_t* req);
@@ -100,6 +103,7 @@ private:
     esp_err_t HandleSystem(httpd_req_t* req);
     esp_err_t HandleReboot(httpd_req_t* req);
     esp_err_t HandleCheck(httpd_req_t* req);
+    esp_err_t HandleEq(httpd_req_t* req);
 
     std::string FeedsJson() const;
     std::string SkillsJson() const;

@@ -164,6 +164,7 @@ body{background:#f1f4f8}
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="reminders">⏰ Напоминания</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="wol">🌐 Wake-on-LAN</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="skills">🧠 Навыки</button></li>
+ <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="sound">🎚 Звук</button></li>
  <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-tab="system">⚙ Система</button></li>
 </ul>
 <div class="tab-content">
@@ -387,6 +388,32 @@ body{background:#f1f4f8}
 </div>
 
 
+<div class="tab-pane" id="pane-sound" role="tabpanel">
+
+<section class="card mb-4">
+ <div class="card-header">🔊 Громкость</div>
+ <div class="card-body">
+  <div class="d-flex align-items-center gap-3">
+   <span id="volumeValue" class="badge text-bg-secondary d-inline-flex justify-content-center align-items-center"
+         style="width: 3rem; min-width: 3rem; flex-shrink: 0;">70</span>
+   <input id="volumeSlider" type="range" class="form-range mb-0 flex-grow-1"
+          min="0" max="100" step="1" value="70">
+  </div>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header d-flex justify-content-between align-items-center">
+  <span>🎚 Эквалайзер</span>
+  <button class="btn btn-sm btn-outline-secondary" type="button" id="eqResetBtn">Плоская АЧХ</button>
+ </div>
+ <div class="card-body">
+  <div id="eqBands" class="d-flex flex-column gap-2"></div>
+  <div class="form-text mt-3">Усиление полосы от −15 до +15 дБ. Настройки применяются сразу и сохраняются в устройстве.</div>
+ </div>
+</section>
+</div>
+
 <div class="tab-pane" id="pane-system" role="tabpanel">
 
 <section class="card mb-4">
@@ -405,18 +432,6 @@ body{background:#f1f4f8}
     <div class="small text-muted" id="statusStorageText">—</div>
    </dd>
   </dl>
- </div>
-</section>
-
-<section class="card mb-4">
- <div class="card-header">🔊 Громкость</div>
- <div class="card-body">
-  <div class="d-flex align-items-center gap-3">
-   <span id="volumeValue" class="badge text-bg-secondary d-inline-flex justify-content-center align-items-center"
-         style="width: 3rem; min-width: 3rem; flex-shrink: 0;">70</span>
-   <input id="volumeSlider" type="range" class="form-range mb-0 flex-grow-1"
-          min="0" max="100" step="1" value="70">
-  </div>
  </div>
 </section>
 
@@ -932,6 +947,7 @@ function showTab(name){
   if(name==='reminders')loadReminders();
   if(name==='news')loadRss();
   if(name==='skills')loadTools();
+  if(name==='sound'){loadEq();loadSystem();}
   if(name==='system')loadSystem();
   if(name==='wol')loadWol();
 }
@@ -1033,6 +1049,72 @@ async function loadSystem(){
     renderStatus(data);
   }catch(e){/* device unreachable; keep last state */}
 }
+function fmtGain(value){
+  const gain=parseInt(value,10)||0;
+  return (gain>0?'+':'')+gain+' дБ';
+}
+async function loadEq(){
+  try{
+    const r=await fetch('/api/eq');
+    if(!r.ok)return;
+    paintEq(await r.json());
+  }catch(e){/* device unreachable; keep last state */}
+}
+function paintEq(data){
+  const bands=Array.isArray(data.bands_hz)?data.bands_hz:[];
+  const gains=Array.isArray(data.gains_db)?data.gains_db:[];
+  const host=document.getElementById('eqBands');
+  if(!host||bands.length===0)return;
+  if(host.children.length!==bands.length){
+    host.innerHTML='';
+    bands.forEach((hz,index)=>{
+      const row=document.createElement('div');
+      row.className='d-flex align-items-center gap-2';
+      const label=document.createElement('span');
+      label.className='badge text-bg-secondary d-inline-flex justify-content-center align-items-center';
+      label.style.cssText='width:4.5rem;min-width:4.5rem;flex-shrink:0';
+      label.textContent=hz>=1000?(hz/1000)+' кГц':hz+' Гц';
+      const slider=document.createElement('input');
+      slider.type='range';
+      slider.className='form-range mb-0 flex-grow-1';
+      slider.min='-15';slider.max='15';slider.step='1';slider.value='0';
+      slider.dataset.band=index;
+      const value=document.createElement('span');
+      value.className='badge text-bg-secondary d-inline-flex justify-content-center align-items-center';
+      value.style.cssText='width:4rem;min-width:4rem;flex-shrink:0';
+      value.textContent=fmtGain(0);
+      slider.oninput=()=>{value.textContent=fmtGain(slider.value)};
+      slider.onchange=()=>saveEq();
+      row.append(label,slider,value);
+      host.append(row);
+    });
+  }
+  host.querySelectorAll('input[type=range]').forEach((slider,index)=>{
+    if(typeof gains[index]==='number')slider.value=Math.max(-15,Math.min(15,gains[index]));
+    const value=slider.nextElementSibling;
+    if(value)value.textContent=fmtGain(slider.value);
+  });
+}
+async function saveEq(){
+  const sliders=document.querySelectorAll('#eqBands input[type=range]');
+  if(sliders.length===0)return;
+  const gains=[];
+  sliders.forEach(s=>gains.push(parseInt(s.value,10)||0));
+  try{
+    const r=await fetch('/api/eq',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({gains:gains})});
+    const res=await r.json().catch(()=>({}));
+    if(!r.ok)msg('Не удалось применить эквалайзер: '+(res.error||r.status),false);
+  }catch(e){msg('Не удалось применить эквалайзер: устройство недоступно',false);}
+}
+document.getElementById('eqResetBtn').onclick=()=>{
+  document.querySelectorAll('#eqBands input[type=range]').forEach(slider=>{
+    slider.value='0';
+    const value=slider.nextElementSibling;
+    if(value)value.textContent=fmtGain(0);
+  });
+  saveEq();
+};
 function fmtUptime(seconds){
   const total=Math.max(0,Math.floor(seconds||0));
   const days=Math.floor(total/86400),hours=Math.floor(total%86400/3600);
@@ -1419,7 +1501,7 @@ bool WebServer::Start(int port) {
     // tasks; handlers still get CPU because they block on the network.
     config.task_priority = 2;
     // httpd counts every uri/method pair, and the modules registered after this
-    // point need slots too: fourteen endpoints here, five for Wake-on-LAN, eight
+    // point need slots too: sixteen endpoints here, five for Wake-on-LAN, eight
     // for the radio API and one for the reminders. Keep a small margin, since a
     // handler that does not fit is silently missing at runtime.
     config.max_uri_handlers = 32;
@@ -1456,6 +1538,8 @@ bool WebServer::Start(int port) {
          .user_ctx = nullptr},
         {.uri = "/api/system/check", .method = HTTP_GET, .handler = CheckHandler,
          .user_ctx = nullptr},
+        {.uri = "/api/eq", .method = HTTP_GET, .handler = EqHandler, .user_ctx = nullptr},
+        {.uri = "/api/eq", .method = HTTP_POST, .handler = EqHandler, .user_ctx = nullptr},
     };
     for (const auto& route : routes) {
         AddHandler(route);
@@ -1566,6 +1650,13 @@ esp_err_t WebServer::CheckHandler(httpd_req_t* req) {
         return ESP_FAIL;
     }
     return instance_->HandleCheck(req);
+}
+
+esp_err_t WebServer::EqHandler(httpd_req_t* req) {
+    if (instance_ == nullptr) {
+        return ESP_FAIL;
+    }
+    return instance_->HandleEq(req);
 }
 
 esp_err_t WebServer::HandlePage(httpd_req_t* req) {
@@ -1989,5 +2080,71 @@ esp_err_t WebServer::HandleCheck(httpd_req_t* req) {
     cJSON_AddBoolToObject(root.get(), "ok", true);
     cJSON_AddStringToObject(root.get(), "service", service);
     CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+    return web::SendJson(req, 200, text != nullptr ? text.get() : "{\"ok\":true}");
+}
+
+esp_err_t WebServer::HandleEq(httpd_req_t* req) {
+    AudioCodec* codec = Board::GetInstance().GetAudioCodec();
+    if (codec == nullptr) {
+        return web::SendError(req, 503, "Audio codec is not available");
+    }
+
+    if (req->method == HTTP_GET) {
+        CJsonUniquePtr root(cJSON_CreateObject());
+        if (root == nullptr) {
+            return web::SendError(req, 500, "Out of memory");
+        }
+        cJSON* bands = cJSON_AddArrayToObject(root.get(), "bands_hz");
+        cJSON* gains_json = cJSON_AddArrayToObject(root.get(), "gains_db");
+        if (bands == nullptr || gains_json == nullptr) {
+            return web::SendError(req, 500, "Out of memory");
+        }
+        const std::vector<int> gains = codec->GetEqGains();
+        for (int i = 0; i < AudioCodec::eq_band_count(); ++i) {
+            cJSON_AddItemToArray(bands, cJSON_CreateNumber(AudioCodec::eq_band_freq(i)));
+            const int gain = i < static_cast<int>(gains.size()) ? gains[i] : 0;
+            cJSON_AddItemToArray(gains_json, cJSON_CreateNumber(gain));
+        }
+        CJsonStringUniquePtr text(cJSON_PrintUnformatted(root.get()));
+        return web::SendJson(req, 200, text != nullptr ? text.get() : "{}");
+    }
+
+    // POST carries {"gains":[-15..15, ...]} with one value per band, in the order
+    // the getter above reports. The codec applies them to the output path and
+    // keeps them in NVS, so the page and the device never disagree after a boot.
+    std::string body;
+    if (!web::ReadJsonBody(req, body)) {
+        return ESP_OK;
+    }
+    CJsonUniquePtr root(cJSON_Parse(body.c_str()));
+    cJSON* gains_json = root != nullptr ? cJSON_GetObjectItem(root.get(), "gains") : nullptr;
+    if (!cJSON_IsArray(gains_json)) {
+        return web::SendError(req, 400, "Expected a \"gains\" array");
+    }
+    if (cJSON_GetArraySize(gains_json) != AudioCodec::eq_band_count()) {
+        return web::SendError(req, 400, "Expected one gain per band");
+    }
+    std::vector<int> gains;
+    gains.reserve(AudioCodec::eq_band_count());
+    cJSON* item = nullptr;
+    cJSON_ArrayForEach(item, gains_json) {
+        if (!cJSON_IsNumber(item)) {
+            return web::SendError(req, 400, "Every gain must be a number");
+        }
+        const int gain = static_cast<int>(item->valuedouble);
+        if (gain < -15 || gain > 15) {
+            return web::SendError(req, 400, "Gain must be between -15 and 15 dB");
+        }
+        gains.push_back(gain);
+    }
+    ESP_LOGI(TAG, "Equalizer updated from the Web UI");
+    codec->SetEqGains(gains);
+
+    CJsonUniquePtr result(cJSON_CreateObject());
+    if (result == nullptr) {
+        return web::SendError(req, 500, "Out of memory");
+    }
+    cJSON_AddBoolToObject(result.get(), "ok", true);
+    CJsonStringUniquePtr text(cJSON_PrintUnformatted(result.get()));
     return web::SendJson(req, 200, text != nullptr ? text.get() : "{\"ok\":true}");
 }

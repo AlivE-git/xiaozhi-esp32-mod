@@ -6,10 +6,13 @@
 #include <driver/i2s_std.h>
 #include <esp_idf_version.h>
 
+#include <array>
 #include <vector>
 #include <string>
 #include <functional>
 #include <mutex>
+
+#include "esp_ae_eq.h"
 
 #include "board.h"
 
@@ -34,6 +37,16 @@ public:
     virtual void SetInputGain(float gain);
     virtual void EnableInput(bool enable);
     virtual void EnableOutput(bool enable);
+    virtual void SetEqGains(const std::vector<int>& gains_db);
+    virtual std::vector<int> GetEqGains() const;
+
+    // Graphic equalizer layout, shared with the MCP tool and the Web UI so that
+    // every control names the same bands. The output runs at 24 kHz on this
+    // board, so 8 kHz is the top useful band: half the sample rate is 12 kHz.
+    static int eq_band_count() { return kEqBandCount; }
+    static uint32_t eq_band_freq(int index) {
+        return index >= 0 && index < kEqBandCount ? kEqBandFreqs[index] : 0;
+    }
 
     virtual void OutputData(std::vector<int16_t>& data);
     virtual bool InputData(std::vector<int16_t>& data);
@@ -58,7 +71,21 @@ protected:
     // feeds it from the output task. Concurrent writes interleave two PCM
     // streams inside one I2S transfer, which is heard as loud crackling, so
     // whole writes are serialized here as a last line of defence.
-    std::mutex output_mutex_;
+    mutable std::mutex output_mutex_;
+
+    static constexpr int kEqBandCount = 8;
+    static constexpr std::array<uint32_t, kEqBandCount> kEqBandFreqs = {60,   125,  250,  500,
+                                                                       1000, 2000, 4000, 8000};
+
+    void LoadEqSettings();
+    void EnsureEq();
+    void ApplyEq(std::vector<int16_t>& data);
+    void CloseEq();
+
+    esp_ae_eq_handle_t eq_handle_ = nullptr;
+    std::array<int, kEqBandCount> eq_gains_db_{};
+    int eq_sample_rate_cfg_ = 0;
+    int eq_channels_cfg_ = 0;
 
     bool duplex_ = false;
     bool input_reference_ = false;

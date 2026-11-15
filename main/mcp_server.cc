@@ -12,6 +12,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <cstring>
 #include <iterator>
 #include <optional>
@@ -182,6 +183,62 @@ void McpServer::AddCommonTools() {
                 auto codec = board.GetAudioCodec();
                 codec->SetOutputVolume(properties["volume"].value<int>());
                 return true;
+            });
+
+    // Shared by the getter and the setter below: both answer with the band layout
+    // and the gains that are in effect after the call.
+    auto eq_json = [](const std::vector<int>& gains) {
+        std::string out = "{\"bands_hz\":[";
+        for (int i = 0; i < AudioCodec::eq_band_count(); ++i) {
+            if (i > 0) {
+                out += ',';
+            }
+            out += std::to_string(AudioCodec::eq_band_freq(i));
+        }
+        out += "],\"gains_db\":[";
+        for (int i = 0; i < AudioCodec::eq_band_count(); ++i) {
+            if (i > 0) {
+                out += ',';
+            }
+            out += std::to_string(i < static_cast<int>(gains.size()) ? gains[i] : 0);
+        }
+        out += "]}";
+        return out;
+    };
+
+    AddTool("self.audio_speaker.get_eq",
+            "Get the current 8-band audio equalizer settings. Bands: 60, 125, 250, 500, 1000, "
+            "2000, 4000, 8000 Hz. Returns gains in dB for each band.",
+            PropertyList(), [&board, eq_json](const PropertyList& properties) -> ReturnValue {
+                auto codec = board.GetAudioCodec();
+                return eq_json(codec->GetEqGains());
+            });
+
+    AddTool("self.audio_speaker.set_eq",
+            "Set the 8-band audio equalizer. Provide gain in dB for each band (range -15..15): "
+            "gain_60, gain_125, gain_250, gain_500, gain_1000, gain_2000, gain_4000, gain_8000. "
+            "Use 0 for a flat response. Call self.audio_speaker.get_eq first if you need current "
+            "values.",
+            PropertyList({Property("gain_60", kPropertyTypeInteger, -15, 15),
+                          Property("gain_125", kPropertyTypeInteger, -15, 15),
+                          Property("gain_250", kPropertyTypeInteger, -15, 15),
+                          Property("gain_500", kPropertyTypeInteger, -15, 15),
+                          Property("gain_1000", kPropertyTypeInteger, -15, 15),
+                          Property("gain_2000", kPropertyTypeInteger, -15, 15),
+                          Property("gain_4000", kPropertyTypeInteger, -15, 15),
+                          Property("gain_8000", kPropertyTypeInteger, -15, 15)}),
+            [&board, eq_json](const PropertyList& properties) -> ReturnValue {
+                auto codec = board.GetAudioCodec();
+                std::vector<int> gains = {properties["gain_60"].value<int>(),
+                                          properties["gain_125"].value<int>(),
+                                          properties["gain_250"].value<int>(),
+                                          properties["gain_500"].value<int>(),
+                                          properties["gain_1000"].value<int>(),
+                                          properties["gain_2000"].value<int>(),
+                                          properties["gain_4000"].value<int>(),
+                                          properties["gain_8000"].value<int>()};
+                codec->SetEqGains(gains);
+                return eq_json(codec->GetEqGains());
             });
 
     auto backlight = board.GetBacklight();
