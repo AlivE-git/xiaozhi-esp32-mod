@@ -944,10 +944,13 @@ void Esp32Radio::PlayRadioStream() {
 
     // The OLED has a single subtitle line that conversation text also uses, so the
     // station name is (re)applied whenever playback starts from the idle state and
-    // whenever the device returns to idle after a conversation.
+    // whenever the device returns to idle after a conversation. It is also refreshed
+    // periodically in idle, because system messages can overwrite the single slot.
     auto last_app_state = app.GetDeviceState();
+    int64_t last_station_show_us = 0;
     if (last_app_state == kDeviceStateIdle) {
         ShowCurrentStation();
+        last_station_show_us = esp_timer_get_time();
     }
 
     auto& audio_service = app.GetAudioService();
@@ -978,6 +981,13 @@ void Esp32Radio::PlayRadioStream() {
                      current_station_name_.c_str());
             ShowCurrentStation();
             last_app_state = kDeviceStateIdle;
+            last_station_show_us = esp_timer_get_time();
+        } else {
+            const int64_t now_us = esp_timer_get_time();
+            if (now_us - last_station_show_us >= 5 * 1000 * 1000) {
+                ShowCurrentStation();
+                last_station_show_us = now_us;
+            }
         }
 
         // If more audio data is needed, read from the buffer

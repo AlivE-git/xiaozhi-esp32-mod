@@ -690,7 +690,11 @@ void Application::InitializeProtocol() {
         ApplyPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Schedule([this]() {
             auto display = Board::GetInstance().GetDisplay();
-            display->SetChatMessage("system", "");
+            // The OLED has a single subtitle slot shared by roles; keep the station name
+            // visible when the radio keeps playing after the voice session.
+            if (radio_ == nullptr || !radio_->IsPlaying()) {
+                display->SetChatMessage("system", "");
+            }
             SetDeviceState(kDeviceStateIdle);
         });
     });
