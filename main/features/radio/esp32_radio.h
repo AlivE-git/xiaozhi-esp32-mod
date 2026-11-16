@@ -57,6 +57,17 @@ private:
 
     std::atomic<bool> is_playing_;
     std::atomic<bool> is_downloading_;
+
+    // A start requested during a voice session: the radio waits for the session to
+    // end so its audio and network work never overlap the assistant's answer.
+    // Guarded by control_mutex_.
+    struct PendingStart {
+        bool active = false;
+        std::string url;
+        std::string name;
+        std::string key;
+    };
+    PendingStart pending_start_;
     // Serializes PlayUrl()/Stop() so thread start/join never races
     std::mutex control_mutex_;
     std::thread play_thread_;
@@ -91,6 +102,10 @@ private:
     // playing flag and wakes both threads, so a dead URL never leaves a
     // thread waiting for audio that will not arrive.
     void FinishDownload(bool failed);
+    // Starts a stream now when the device is idle, otherwise remembers the request
+    // so Application can start it after the conversation.
+    bool StartOrDefer(const std::string& radio_url, const std::string& station_name,
+                      const std::string& station_key);
 
 public:
     Esp32Radio();
@@ -110,6 +125,14 @@ public:
     // already known and fuzzy name/alias matching must not kick in). Applies
     // the station's volume like PlayStation() does.
     bool PlayStationByKey(const std::string& key);
+
+    // Starts a station that was requested while the assistant owned the speaker.
+    // Application calls it when the device returns to idle.
+    bool StartPendingIfAny();
+
+    // True while a start is waiting for the assistant to finish. The idle decision
+    // after an answer uses it so the station can begin right away.
+    bool HasPendingStart();
 
     // Play a station from a specific URL
     virtual bool PlayUrl(const std::string& radio_url,

@@ -757,10 +757,12 @@ void Application::InitializeProtocol() {
                         // instead of staying in listening mode.
                         if (idle_after_speaking_.exchange(false)) {
                             SetDeviceState(kDeviceStateIdle);
-                        } else if (radio_ != nullptr && radio_->IsPlaying()) {
-                            // If the radio is playing, return to standby (idle) so
-                            // the radio keeps playing and the device listens for the
-                            // wake word instead of staying in the chat session.
+                        } else if (radio_ != nullptr &&
+                                   (radio_->IsPlaying() || radio_->HasPendingStart())) {
+                            // A playing station, or one that waited for the answer to
+                            // end, keeps the device in standby: the radio starts (or
+                            // continues) and the device waits for the wake word
+                            // instead of staying in the chat session.
                             SetDeviceState(kDeviceStateIdle);
                         } else if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
@@ -1010,6 +1012,10 @@ void Application::HandleStartListeningEvent() {
     }
 
     if (state == kDeviceStateIdle) {
+        if (radio_ != nullptr && radio_->IsPlaying()) {
+            ESP_LOGI(TAG, "Stopping radio playback to start listening");
+            radio_->Stop();
+        }
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update)
@@ -1050,6 +1056,12 @@ void Application::HandleWakeWordDetectedEvent() {
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
     if (state == kDeviceStateIdle) {
+        // The assistant takes the speaker for the whole session, so a playing
+        // station is stopped instead of being paused and mixed into the answer.
+        if (radio_ != nullptr && radio_->IsPlaying()) {
+            ESP_LOGI(TAG, "Stopping radio playback for the wake word");
+            radio_->Stop();
+        }
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateNotifying) {
         StopNotification();
@@ -1163,6 +1175,11 @@ void Application::HandleStateChangedEvent() {
             }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
+            // A radio start requested during the conversation waits for the
+            // assistant to finish; the idle transition is that moment.
+            if (new_state == kDeviceStateIdle && radio_ != nullptr) {
+                radio_->StartPendingIfAny();
+            }
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);

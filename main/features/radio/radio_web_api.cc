@@ -279,8 +279,9 @@ esp_err_t HandlePlay(httpd_req_t* req) {
     if (radio->GetStations().find(key) == radio->GetStations().end()) {
         return web::SendError(req, 404, "Station not found");
     }
-    // PlayUrl() reports a dead stream (404, DNS error) instead of pretending to
-    // play, so the page can show the failure right away.
+    // The start itself is asynchronous: a dead stream is reported by the radio
+    // threads (a notification on the device), because waiting for the first bytes
+    // here would block the caller's task for seconds.
     if (!radio->PlayStationByKey(key)) {
         return web::SendError(req, 502, "Не удалось открыть поток: станция недоступна");
     }

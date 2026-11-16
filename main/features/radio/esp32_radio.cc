@@ -389,11 +389,7 @@ bool Esp32Radio::PlayStation(const std::string& station_name) {
     }
 
     current_station_volume_ = found.volume;
-    bool started = PlayUrl(found.url, found.name);
-    if (started) {
-        current_station_key_ = found_key;
-    }
-    return started;
+    return StartOrDefer(found.url, found.name, found_key);
 }
 
 bool Esp32Radio::PlayStationByKey(const std::string& key) {
@@ -412,20 +408,35 @@ bool Esp32Radio::PlayStationByKey(const std::string& key) {
         return false;
     }
     current_station_volume_ = found.volume;
-    bool started = PlayUrl(found.url, found.name);
-    if (started) {
-        current_station_key_ = key;
-    }
-    return started;
+    return StartOrDefer(found.url, found.name, key);
 }
 
 bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& station_name) {
+    return StartOrDefer(radio_url, station_name, std::string());
+}
+
+bool Esp32Radio::StartOrDefer(const std::string& radio_url, const std::string& station_name,
+                              const std::string& station_key) {
     std::lock_guard<std::mutex> control_lock(control_mutex_);
 
     if (radio_url.empty()) {
         ESP_LOGE(TAG, "Radio URL is empty");
         return false;
     }
+
+    // The assistant owns the speaker until its session ends: starting now would put
+    // radio audio and TLS work inside its answer. Remember the request and let
+    // Application start it on the next idle transition instead.
+    if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
+        pending_start_.active = true;
+        pending_start_.url = radio_url;
+        pending_start_.name = station_name;
+        pending_start_.key = station_key;
+        ESP_LOGI(TAG, "Radio start deferred until the voice session ends: %s",
+                 radio_url.c_str());
+        return true;
+    }
+    pending_start_.active = false;
 
     ESP_LOGI(TAG, "Starting radio stream: %s (%s)",
              station_name.empty() ? "Custom URL" : station_name.c_str(), radio_url.c_str());
@@ -472,24 +483,37 @@ bool Esp32Radio::PlayUrl(const std::string& radio_url, const std::string& statio
     is_playing_ = true;
     play_thread_ = std::thread(&Esp32Radio::PlayRadioStream, this);
 
-    // A dead stream (404, DNS error, refused connection) stops the download
-    // thread right away. Wait a moment for the first audio so the caller gets a
-    // failure instead of a station that looks like it is playing.
-    bool started = false;
-    {
-        std::unique_lock<std::mutex> lock(buffer_mutex_);
-        buffer_cv_.wait_for(lock, std::chrono::seconds(4),
-                            [this] { return !is_playing_ || buffer_size_ > 0 || !is_downloading_; });
-        started = is_playing_ && (buffer_size_ > 0 || is_downloading_);
-    }
-    if (!started) {
-        ESP_LOGE(TAG, "Radio stream did not start: %s", radio_url.c_str());
-        StopLocked();
-        return false;
-    }
-
-    ESP_LOGI(TAG, "Radio streaming threads started successfully");
+    // Do not wait for the first bytes here: this runs on the main task (MCP tools
+    // are dispatched there), and waiting for a slow connection would freeze every
+    // state change for seconds. A dead stream is reported by the download thread
+    // (notification + playing flag) and PlayRadioStream gives up once the download
+    // ends without audio.
+    current_station_key_ = station_key;
+    ESP_LOGI(TAG, "Radio streaming threads started");
     return true;
+}
+
+bool Esp32Radio::HasPendingStart() {
+    std::lock_guard<std::mutex> lock(control_mutex_);
+    return pending_start_.active;
+}
+
+bool Esp32Radio::StartPendingIfAny() {
+    std::string url;
+    std::string name;
+    std::string key;
+    {
+        std::lock_guard<std::mutex> lock(control_mutex_);
+        if (!pending_start_.active) {
+            return false;
+        }
+        url = pending_start_.url;
+        name = pending_start_.name;
+        key = pending_start_.key;
+        pending_start_.active = false;
+    }
+    ESP_LOGI(TAG, "Starting the deferred radio request now that the device is idle");
+    return StartOrDefer(url, name, key);
 }
 
 void Esp32Radio::ShowCurrentStation() {
@@ -504,6 +528,8 @@ void Esp32Radio::ShowCurrentStation() {
 
 bool Esp32Radio::Stop() {
     std::lock_guard<std::mutex> control_lock(control_mutex_);
+    // An explicit stop also cancels a start that waited for the session to end.
+    pending_start_.active = false;
 
     if (!is_playing_ && !is_downloading_) {
         ESP_LOGW(TAG, "No streaming in progress to stop");
