@@ -68,8 +68,20 @@ private:
         std::string key;
     };
     PendingStart pending_start_;
+    // The station that was playing when a voice session started. The radio does not
+    // just pause for a session: a paused stream kept its TLS socket, decoder and
+    // 256 KB buffer alive next to the assistant's audio, which made the answer
+    // stutter. Guarded by control_mutex_.
+    struct SuspendedStream {
+        bool active = false;
+        std::string url;
+        std::string name;
+        std::string key;
+        float volume = 1.0f;
+    };
+    SuspendedStream suspended_;
     // Serializes PlayUrl()/Stop() so thread start/join never races
-    std::mutex control_mutex_;
+    mutable std::mutex control_mutex_;
     std::thread play_thread_;
     std::thread download_thread_;
 
@@ -133,6 +145,19 @@ public:
     // True while a start is waiting for the assistant to finish. The idle decision
     // after an answer uses it so the station can begin right away.
     bool HasPendingStart();
+
+    // Stops both streaming threads for the duration of a voice session and saves the
+    // station so it can be restarted afterwards. Application calls it whenever a
+    // session begins (button, push-to-talk, wake word).
+    bool SuspendForVoiceSession();
+
+    // Restarts the station saved by SuspendForVoiceSession(). Returns false when
+    // nothing was suspended or a station requested during the session takes over.
+    bool ResumeAfterVoiceSession();
+
+    // True while a station is stopped for a voice session and waiting to restart.
+    // The idle decision after an answer uses it so the device returns to standby.
+    bool IsSuspended() const;
 
     // Play a station from a specific URL
     virtual bool PlayUrl(const std::string& radio_url,

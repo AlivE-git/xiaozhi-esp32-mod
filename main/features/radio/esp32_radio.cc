@@ -432,11 +432,14 @@ bool Esp32Radio::StartOrDefer(const std::string& radio_url, const std::string& s
         pending_start_.url = radio_url;
         pending_start_.name = station_name;
         pending_start_.key = station_key;
+        // A new request supersedes the station suspended for this session.
+        suspended_ = SuspendedStream();
         ESP_LOGI(TAG, "Radio start deferred until the voice session ends: %s",
                  radio_url.c_str());
         return true;
     }
     pending_start_.active = false;
+    suspended_ = SuspendedStream();
 
     ESP_LOGI(TAG, "Starting radio stream: %s (%s)",
              station_name.empty() ? "Custom URL" : station_name.c_str(), radio_url.c_str());
@@ -516,6 +519,62 @@ bool Esp32Radio::StartPendingIfAny() {
     return StartOrDefer(url, name, key);
 }
 
+bool Esp32Radio::SuspendForVoiceSession() {
+    std::lock_guard<std::mutex> control_lock(control_mutex_);
+
+    if (suspended_.active) {
+        return true;
+    }
+    if (!is_playing_ && !is_downloading_) {
+        return false;
+    }
+
+    suspended_.active = true;
+    suspended_.url = current_station_url_;
+    suspended_.name = current_station_name_;
+    suspended_.key = current_station_key_;
+    suspended_.volume = current_station_volume_;
+
+    ESP_LOGI(TAG, "Suspending radio for the voice session: %s", suspended_.name.c_str());
+
+    // Stop both threads instead of only pausing the playback loop: the download
+    // thread kept the TLS socket and the 256 KB PSRAM buffer busy next to the
+    // assistant's audio, which was heard as stuttering answers.
+    StopLocked();
+    return true;
+}
+
+bool Esp32Radio::ResumeAfterVoiceSession() {
+    SuspendedStream resume;
+    {
+        std::lock_guard<std::mutex> control_lock(control_mutex_);
+        if (!suspended_.active) {
+            return false;
+        }
+        resume = suspended_;
+        suspended_ = SuspendedStream();
+        if (pending_start_.active) {
+            // A station requested during the session wins over the suspended one.
+            return false;
+        }
+    }
+
+    ESP_LOGI(TAG, "Restarting the suspended station after the voice session: %s",
+             resume.name.c_str());
+    // Behind the scenes: by key when possible, so a station that was removed while
+    // the session ran is not started again.
+    if (!resume.key.empty()) {
+        return PlayStationByKey(resume.key);
+    }
+    current_station_volume_ = resume.volume;
+    return PlayUrl(resume.url, resume.name);
+}
+
+bool Esp32Radio::IsSuspended() const {
+    std::lock_guard<std::mutex> control_lock(control_mutex_);
+    return suspended_.active;
+}
+
 void Esp32Radio::ShowCurrentStation() {
     auto display = Board::GetInstance().GetDisplay();
     if (display == nullptr || current_station_name_.empty()) {
@@ -528,11 +587,18 @@ void Esp32Radio::ShowCurrentStation() {
 
 bool Esp32Radio::Stop() {
     std::lock_guard<std::mutex> control_lock(control_mutex_);
-    // An explicit stop also cancels a start that waited for the session to end.
+    // An explicit stop also cancels a start that waited for the session to end...
     pending_start_.active = false;
+    // ...and a station suspended for a voice session must not come back.
+    const bool was_suspended = suspended_.active;
+    suspended_ = SuspendedStream();
 
     if (!is_playing_ && !is_downloading_) {
-        ESP_LOGW(TAG, "No streaming in progress to stop");
+        if (was_suspended) {
+            ESP_LOGI(TAG, "Suspended radio playback cancelled");
+        } else {
+            ESP_LOGW(TAG, "No streaming in progress to stop");
+        }
         return true;
     }
 
@@ -1005,6 +1071,10 @@ void Esp32Radio::PlayRadioStream() {
         if (last_app_state != kDeviceStateIdle) {
             ESP_LOGI(TAG, "Resuming radio playback, showing station name: %s",
                      current_station_name_.c_str());
+            // The stream kept downloading while the assistant owned the speaker, so
+            // the buffer holds audio from the start of the pause. Drop it and pick up
+            // the live stream instead of playing a delayed copy of the station.
+            ClearAudioBuffer();
             ShowCurrentStation();
             last_app_state = kDeviceStateIdle;
             last_station_show_us = esp_timer_get_time();
@@ -1310,6 +1380,10 @@ void Esp32Radio::ClearAudioBuffer() {
     }
 
     buffer_size_ = 0;
+    // Wake the download thread: it parks while the buffer is full, and after a
+    // flush there is room again. Without this both threads could end up waiting
+    // for each other (playback for data, download for space).
+    buffer_cv_.notify_all();
     ESP_LOGI(TAG, "Radio audio buffer cleared");
 }
 

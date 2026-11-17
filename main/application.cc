@@ -758,11 +758,13 @@ void Application::InitializeProtocol() {
                         if (idle_after_speaking_.exchange(false)) {
                             SetDeviceState(kDeviceStateIdle);
                         } else if (radio_ != nullptr &&
-                                   (radio_->IsPlaying() || radio_->HasPendingStart())) {
-                            // A playing station, or one that waited for the answer to
-                            // end, keeps the device in standby: the radio starts (or
-                            // continues) and the device waits for the wake word
-                            // instead of staying in the chat session.
+                                   (radio_->IsPlaying() || radio_->IsSuspended() ||
+                                    radio_->HasPendingStart())) {
+                            // A playing station, one stopped for this session, or one
+                            // that waited for the answer to end, keeps the device in
+                            // standby: the idle transition restarts the radio and the
+                            // device waits for the wake word instead of staying in the
+                            // chat session.
                             SetDeviceState(kDeviceStateIdle);
                         } else if (listening_mode_ == kListeningModeManualStop) {
                             SetDeviceState(kDeviceStateIdle);
@@ -937,22 +939,13 @@ void Application::HandleToggleChatEvent() {
         return;
     }
 
-    // A tap/button press while the radio is playing stops the playback and,
-    // from the idle state, starts listening for a command immediately
-    // (no wake word needed) instead of returning to standby.
-    if (radio_ != nullptr && radio_->IsPlaying()) {
-        ESP_LOGI(TAG, "Stopping radio playback due to tap; starting to listen");
-        radio_->Stop();
-        if (state == kDeviceStateListening) {
-            protocol_->CloseAudioChannel();
-            return;
-        } else if (state == kDeviceStateSpeaking) {
-            AbortSpeaking(kAbortReasonNone);
-            return;
-        }
-    }
-
+    // A tap/button press starts a voice session (from the idle state it listens for a
+    // command immediately, no wake word needed). A playing station is stopped for the
+    // whole session and restarted when the device returns to idle: a stream that keeps
+    // running (or merely paused) in the background made the assistant's answer
+    // stutter. Only an explicit request (self.radio.stop or the Web UI) keeps it off.
     if (state == kDeviceStateIdle) {
+        SuspendRadioForVoiceSession();
         ListeningMode mode = GetDefaultListeningMode();
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
@@ -1012,10 +1005,9 @@ void Application::HandleStartListeningEvent() {
     }
 
     if (state == kDeviceStateIdle) {
-        if (radio_ != nullptr && radio_->IsPlaying()) {
-            ESP_LOGI(TAG, "Stopping radio playback to start listening");
-            radio_->Stop();
-        }
+        // Push-to-talk boards keep the station as well: it is stopped while listening
+        // and restarted when the press-to-talk session ends.
+        SuspendRadioForVoiceSession();
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update)
@@ -1056,12 +1048,11 @@ void Application::HandleWakeWordDetectedEvent() {
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
     if (state == kDeviceStateIdle) {
-        // The assistant takes the speaker for the whole session, so a playing
-        // station is stopped instead of being paused and mixed into the answer.
-        if (radio_ != nullptr && radio_->IsPlaying()) {
-            ESP_LOGI(TAG, "Stopping radio playback for the wake word");
-            radio_->Stop();
-        }
+        // The station is stopped for the whole session and restarted when the device
+        // returns to idle, so asking for a skill (a timer, the news) does not silence
+        // it. Leaving it playing next to the answer made the assistant stutter, so
+        // only an explicit request (self.radio.stop, the Web UI) keeps it off.
+        SuspendRadioForVoiceSession();
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateNotifying) {
         StopNotification();
@@ -1149,12 +1140,26 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 #endif
 }
 
+void Application::SuspendRadioForVoiceSession() {
+    if (radio_ != nullptr) {
+        radio_->SuspendForVoiceSession();
+    }
+}
+
 void Application::HandleStateChangedEvent() {
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
     // Any state change invalidates a pending deferred listening start;
     // the Listening case below re-arms it when needed.
     pending_listening_start_ = false;
+
+    // Backstop for every way into a voice session: a station that still streams while
+    // the device is not idle is stopped here, whatever path opened the session. The
+    // idle transition below restarts it.
+    if (new_state == kDeviceStateConnecting || new_state == kDeviceStateListening ||
+        new_state == kDeviceStateSpeaking) {
+        SuspendRadioForVoiceSession();
+    }
 
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
@@ -1175,10 +1180,12 @@ void Application::HandleStateChangedEvent() {
             }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
-            // A radio start requested during the conversation waits for the
-            // assistant to finish; the idle transition is that moment.
+            // Coming back to idle ends the voice session: start a station that was
+            // requested during it, or restart the one the session interrupted.
             if (new_state == kDeviceStateIdle && radio_ != nullptr) {
-                radio_->StartPendingIfAny();
+                if (!radio_->StartPendingIfAny()) {
+                    radio_->ResumeAfterVoiceSession();
+                }
             }
             break;
         case kDeviceStateConnecting:

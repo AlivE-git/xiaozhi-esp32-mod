@@ -185,6 +185,8 @@ private:
 
 
     // Event handlers
+    // Stops the radio for the whole voice session; the idle transition restarts it.
+    void SuspendRadioForVoiceSession();
     void HandleStateChangedEvent();
     void HandleToggleChatEvent();
     void HandleStartListeningEvent();
