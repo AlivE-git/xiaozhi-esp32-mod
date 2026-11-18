@@ -27,6 +27,7 @@
 #include "features/radio/esp32_radio.h"
 #include "features/rss/rss_reader.h"
 #include "features/timer/countdown_timer.h"
+#include "features/websearch/web_search.h"
 #include "features/wol/wol.h"
 #include "lvgl_image.h"
 #include "lvgl_theme.h"
@@ -503,6 +504,24 @@ void McpServer::AddCommonTools() {
             "asks for another joke.",
             PropertyList(), [](const PropertyList& properties) -> ReturnValue {
                 return JokeReader::Tell();
+            });
+
+    // Web search through the Google Apps Script proxy configured in the Web UI.
+    AddTool("self.web.search",
+            "Search the internet and read the answer to the user. Use it for facts, "
+            "definitions, explanations and any question that needs current or outside "
+            "information the device does not have. `query` is the question itself, "
+            "rephrased as a search query in the user's language. Set `detailed` to true when "
+            "the user asks for a detailed or long answer, otherwise leave it false. Read the "
+            "returned text to the user as it is; if it says the search is not set up, tell "
+            "the user to fill in the deployment id and token in the System tab of the device "
+            "web page.",
+            PropertyList({Property("query", kPropertyTypeString),
+                          Property("detailed", kPropertyTypeBoolean, false)}),
+            [](const PropertyList& properties) -> ReturnValue {
+                const auto query = properties["query"].value<std::string>();
+                const bool detailed = properties["detailed"].value<bool>();
+                return websearch::Ask(query, detailed);
             });
 
     // Currency converter

@@ -10,6 +10,7 @@
 #include "features/rss/rss_reader.h"
 #include "features/storage/list_storage.h"
 #include "features/timer/countdown_timer.h"
+#include "features/websearch/web_search_web_api.h"
 #include "features/wol/wol_web_api.h"
 #include "mcp_server.h"
 
@@ -367,6 +368,30 @@ body{background:#f1f4f8}
    <button class="btn btn-outline-primary" type="button" id="checkCurrencyBtn">💱 Курс валют</button>
   </div>
   <div class="text-muted small mt-3">Кнопка запрашивает сервис с устройства и показывает, отвечает ли он.</div>
+ </div>
+</section>
+
+<section class="card mb-4">
+ <div class="card-header">🔎 Веб-поиск</div>
+ <div class="card-body">
+  <form id="webSearchForm">
+   <div class="row g-3">
+    <div class="col-12">
+     <label class="form-label" for="webSearchId">Идентификатор развертывания</label>
+     <input id="webSearchId" class="form-control" autocomplete="off" maxlength="200"
+            placeholder="xQ7mKp2VzN9aLw4RtY6bHj8Fc3Ds5Gk1MnPq0XeUoI7vBz6W-98PpsVaf83NzIGA">
+    </div>
+    <div class="col-md-8">
+     <label class="form-label" for="webSearchToken">TOKEN</label>
+     <input id="webSearchToken" class="form-control" type="password" autocomplete="off" maxlength="128"
+            placeholder="значение свойства TOKEN из скрипта">
+    </div>
+    <div class="col-md-4 d-flex align-items-end">
+     <button class="btn btn-primary w-100" type="submit">💾 Сохранить</button>
+    </div>
+   </div>
+  </form>
+  <div class="form-text mt-3">Когда оба поля заполнены, можно попросить «поищи в интернете …» — ответ придёт обычный, или «поищи подробно …» — развёрнутый. Пустые поля выключают поиск.</div>
  </div>
 </section>
 
@@ -857,7 +882,7 @@ function showTab(name){
   if(name==='news')loadRss();
   if(name==='skills')loadTools();
   if(name==='sound'){loadEq();loadSystem();}
-  if(name==='system')loadSystem();
+  if(name==='system'){loadSystem();loadWebSearch();}
   if(name==='wol')loadWol();
 }
 document.querySelectorAll('#mainTabs .nav-link').forEach(b=>{b.onclick=()=>showTab(b.dataset.tab)});
@@ -1107,6 +1132,25 @@ document.getElementById('checkJokeBtn').onclick=e=>checkService('joke',e.current
 document.getElementById('checkCurrencyBtn').onclick=e=>checkService('currency',e.currentTarget);
 document.getElementById('rebootBtn').onclick=rebootDevice;
 document.getElementById('statusRefreshBtn').onclick=()=>loadSystem();
+async function loadWebSearch(){
+  try{
+    const r=await fetch('/api/websearch');
+    if(!r.ok)return;
+    const d=await r.json();
+    document.getElementById('webSearchId').value=d.deployment_id||'';
+    document.getElementById('webSearchToken').value=d.token||'';
+  }catch(e){/* device unreachable; keep last state */}
+}
+document.getElementById('webSearchForm').onsubmit=async e=>{
+  e.preventDefault();
+  const id=document.getElementById('webSearchId').value.trim();
+  const token=document.getElementById('webSearchToken').value.trim();
+  const r=await fetch('/api/websearch',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({deployment_id:id,token:token})});
+  const res=await r.json().catch(()=>({}));
+  if(!r.ok){msg('Не удалось сохранить: '+(res.error||r.status),false);return;}
+  msg(id&&token?'Веб-поиск настроен':'Веб-поиск выключен');
+};
 // Keep uptime and Wi-Fi signal live while the System tab is open.
 setInterval(()=>{
   const pane=document.getElementById('pane-system');
@@ -1389,9 +1433,9 @@ bool WebServer::Start(int port) {
     config.task_priority = 2;
     // httpd counts every uri/method pair, and the modules registered after this
     // point need slots too: sixteen endpoints here, five for Wake-on-LAN, eight
-    // for the radio API and one for the reminders. Keep a small margin, since a
-    // handler that does not fit is silently missing at runtime.
-    config.max_uri_handlers = 32;
+    // for the radio API, two for the web search and one for the reminders. Keep a
+    // margin, since a handler that does not fit is silently missing at runtime.
+    config.max_uri_handlers = 40;
 
     if (httpd_start(&server_handle_, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the Web UI on port %d", port);
@@ -1433,6 +1477,7 @@ bool WebServer::Start(int port) {
     RadioWebApi::Register(*this);
     reminder::ReminderWebApi::Register(*this);
     WolWebApi::Register(*this);
+    WebSearchWebApi::Register(*this);
 
     ESP_LOGI(TAG, "Web UI started on port %d (http://<device-ip>:%d/), build %s %s", port, port,
              __DATE__, __TIME__);

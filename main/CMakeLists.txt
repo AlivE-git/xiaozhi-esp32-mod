@@ -31,6 +31,8 @@ set(SOURCES "audio/audio_codec.cc"
             "features/rss/rss_reader.cc"
             "features/storage/list_storage.cc"
             "features/timer/countdown_timer.cc"
+            "features/websearch/web_search.cc"
+            "features/websearch/web_search_web_api.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
             "display/lvgl_display/emoji_collection.cc"
@@ -56,7 +58,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/currency" "features/joke" "features/radio" "features/reminder" "features/rss" "features/timer" "features/web" "features/wol")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols" "features/currency" "features/joke" "features/radio" "features/reminder" "features/rss" "features/timer" "features/web" "features/websearch" "features/wol")
 
 # Add board common files
 list(APPEND SOURCES
