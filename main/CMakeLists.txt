@@ -1219,6 +1219,7 @@ if(IDF_TARGET STREQUAL "esp32s3")
 endif()
 idf_component_register(SRCS ${SOURCES}
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                                 "features/web/www/index.html.gz"
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES
@@ -1251,6 +1252,24 @@ idf_component_register(SRCS ${SOURCES}
 						espressif__esp-dsp
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
+
+# The device web UI is served gzipped: repack it from the readable source so the
+# embedded blob never goes stale.
+set(WEB_UI_HTML "${CMAKE_CURRENT_SOURCE_DIR}/features/web/www/index.html")
+set(WEB_UI_GZ "${WEB_UI_HTML}.gz")
+if(NOT PYTHON)
+    set(PYTHON python)
+endif()
+add_custom_command(
+    OUTPUT "${WEB_UI_GZ}"
+    COMMAND ${PYTHON} ${PROJECT_DIR}/scripts/pack_web_ui.py
+            --input "${WEB_UI_HTML}" --output "${WEB_UI_GZ}"
+    DEPENDS "${WEB_UI_HTML}" ${PROJECT_DIR}/scripts/pack_web_ui.py
+    COMMENT "Packing web UI"
+    VERBATIM
+)
+add_custom_target(web_ui_gz ALL DEPENDS "${WEB_UI_GZ}")
+add_dependencies(${COMPONENT_LIB} web_ui_gz)
 
 # Keep project-owned C++ on GNU C++23. ESP-IDF 6 may default to a newer
 # dialect; pin the baseline so main/ does not depend on it.
